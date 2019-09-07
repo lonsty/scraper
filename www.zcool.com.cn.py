@@ -2,7 +2,8 @@
 # @Author: Allen
 # @Date:   2019-09-07 18:34:18
 # @Last Modified by:   Allen
-# @Last Modified time: 2019-09-08 02:18:42
+# @Last Modified time: 2019-09-08 02:58:36
+import json
 import os
 import re
 import sys
@@ -182,6 +183,17 @@ class MultiThreadScraper():
         elif scrapy.type == 'image':
             self.save_image(scrapy, response)
 
+    def save_failed_tasks(self):
+        filename = f'{self.convert_to_safe_filename(self.start_time.isoformat()[:-7])}.json'
+        abspath = os.path.abspath(os.path.join(self.directory, filename))
+        with open(abspath, 'w', encoding='utf-8') as ff:
+            failed_records = {
+                'time': self.start_time.isoformat(),
+                'failed': [scrapy._asdict() for scrapy in self.failed]
+            }
+            ff.write(json.dumps(failed_records, ensure_ascii=False, indent=4))
+        return abspath
+
     def run_scraper(self):
         futures = {}
         while True:
@@ -203,10 +215,14 @@ class MultiThreadScraper():
         self.show_task_status()
         if saved_images or failed_images:
             print(f'\n\nImages download success: {saved_images} \tImages download failed: {failed_images}')
+            if saved_images:
+                print(f'Saved {saved_images} images to {self.directory}.')
+
+            if failed_images:
+                failed_file = self.save_failed_tasks()
+                print(f'Saved {failed_images} failed records to {failed_file}.')
         else:
             print('\n\nNo images to download.')
-        if saved_images:
-            print(f'Saved {saved_images} images to {self.directory}.')
 
 
 @click.command()
