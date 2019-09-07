@@ -2,7 +2,7 @@
 # @Author: Allen
 # @Date:   2019-09-07 18:34:18
 # @Last Modified by:   Allen
-# @Last Modified time: 2019-09-08 02:00:21
+# @Last Modified time: 2019-09-08 02:18:42
 import os
 import re
 import sys
@@ -38,13 +38,16 @@ def update_result(func):
             self.failed.add(scrapy)
         else:
             return result
+        finally:
+            self.show_task_status()
 
     return wrapper
 
 
 class MultiThreadScraper():
 
-    def __init__(self, user_id=None, username=None, directory=None, max_pages=None, max_topics=None, max_workers=None):
+    def __init__(self, user_id=None, username=None, directory=None,
+                 max_pages=None, max_topics=None, max_workers=None):
         self.start_time = datetime.now()
         print(self.start_time.ctime())
 
@@ -86,7 +89,7 @@ class MultiThreadScraper():
         print(f'ID: {self.user_id}')
         print(f'Max pages: {max_page}')
         print(f'Pages to scrapy: {self.max_pages}')
-        print(f'Topics to scrapy: {"all" if self.max_pages == "all" else (self.max_pages * self.max_topics)}')
+        print(f'Topics to scrapy: {"all" if self.max_topics == "all" else (self.max_pages * self.max_topics)}')
         print(f'Storage directory: {self.directory}', end='\n\n')
         Thread(target=self.show_task_status, args=(0.5,), daemon=True).start()  # background task to update status.
 
@@ -105,7 +108,8 @@ class MultiThreadScraper():
     @staticmethod
     def search_id_by_username(username):
         if not username:
-            raise ValueError('Must give a <user id> or <username>!')
+            print('Must give a <user id> or <username>!')
+            sys.exit(1)
         try:
             response = requests.get(urljoin(HOST_PAGE, SEARCH_DESIGNER_SUFFIX.format(word=username)), timeout=TIMEOUT)
         except Exception:
@@ -138,8 +142,8 @@ class MultiThreadScraper():
 
     @update_result
     def parse_topics(self, scrapy, html):
-        soup = BeautifulSoup(markup=html.text, features='html.parser')
-        for card in soup.find_all(name='a', class_='card-img-hover')[:self.max_topics + 1]:
+        cards = BeautifulSoup(html.text, 'html.parser').find_all(name='a', class_='card-img-hover')
+        for card in (cards if self.max_topics == 'all' else cards[:self.max_topics + 1]):
             new_scrapy = Scrapy('topic', scrapy.author, card.get('title'), card.get('href'))
             if new_scrapy not in self.scraped:
                 self.to_crawl.put(new_scrapy)
