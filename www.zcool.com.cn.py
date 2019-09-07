@@ -2,7 +2,7 @@
 # @Author: Allen
 # @Date:   2019-09-07 18:34:18
 # @Last Modified by:   Allen
-# @Last Modified time: 2019-09-07 21:16:54
+# @Last Modified time: 2019-09-07 22:56:48
 import os
 import re
 import sys
@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime
 from functools import wraps
 from queue import Empty, Queue
+from time import sleep
 from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
@@ -30,8 +31,8 @@ def print_status(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         result = func(self, *args, **kwargs)
-        print(f'Time spent: {str(datetime.now() - self.start_time)[:-7]} \tCompleted: '
-              f'{len(self.scraped):5d} \tRemaining: {self.to_crawl.qsize():5d}', end='\r')
+        print(f'Time spent: {str(datetime.now() - self.start_time)[:-7]} \tRemaining tasks: '
+              f'{self.to_crawl.qsize():5d} \tCompleted tasks: {len(self.scraped):5d}', end='\r')
         return result
 
     return wrapper
@@ -40,11 +41,9 @@ def print_status(func):
 class MultiThreadScraper():
 
     def __init__(self, user_id=None, username=None, directory=None, max_pages=None, max_topics=None, max_workers=None):
-
         self.user_id = user_id or self.search_id_by_username(username)
         self.max_topics = max_topics or 'all'
         self.max_workers = max_workers or 20
-
         self.base_url = HOST_PAGE + USER_SUFFIX.format(id=self.user_id)
         self.pool = ThreadPoolExecutor(self.max_workers)
         self.scraped = set([])
@@ -59,8 +58,8 @@ class MultiThreadScraper():
             self.username = author
         except Exception:
             self.username = username or 'anonymous'
-        self.directory = os.path.abspath(
-            os.path.join(directory or '', urlparse(HOST_PAGE).netloc, self.username))
+        self.directory = os.path.abspath(os.path.join(directory or '', urlparse(HOST_PAGE).netloc,
+                                                      self.convert_to_safe_filename(self.username)))
 
         try:
             max_page = int(soup.find(id='laypage_0').find_all(name='a')[-2].text)
@@ -74,14 +73,14 @@ class MultiThreadScraper():
             if scrapy not in self.scraped:
                 self.to_crawl.put(scrapy)
 
-        print(f'username: {self.username}')
-        print(f'id: {self.user_id}')
+        print(f'Username: {self.username}')
+        print(f'ID: {self.user_id}')
         print(f'Max pages: {max_page}')
         print(f'Pages to scrapy: {self.max_pages}')
         print(f'Topics to scrapy: {"all" if self.max_pages == "all" else (self.max_pages * self.max_topics)}')
         print(f'Storage directory: {self.directory}')
         self.start_time = datetime.now()
-        print(self.start_time.ctime())
+        print(self.start_time.ctime(), end='\n\n')
 
     @staticmethod
     def mkdirs_if_not_exist(dir):
@@ -93,20 +92,24 @@ class MultiThreadScraper():
 
     @staticmethod
     def convert_to_safe_filename(filename):
-        return "".join([c for c in filename if c not in '\/:*?"<>|']).strip()
+        return "".join([c for c in filename if c not in r'\/:*?"<>|']).strip()
 
     @staticmethod
     def search_id_by_username(username):
         if not username:
             raise ValueError('Must give a <user id> or <username>!')
-        response = requests.get(urljoin(HOST_PAGE, SEARCH_DESIGNER_SUFFIX.format(word=username)))
-        author_1st = BeautifulSoup(response.text, 'html.parser').find(name='div', class_='author-info')
-        id = author_1st.get('data-id')
-        user_1st = author_1st.get('data-name')
-        if user_1st != username:
-            print('User not exist!')
+        try:
+            response = requests.get(urljoin(HOST_PAGE, SEARCH_DESIGNER_SUFFIX.format(word=username)), timeout=(5, 10))
+        except Exception:
+            print(f'Failed to connect to {HOST_PAGE}')
             sys.exit(1)
-            # raise ValueError('User not exist!')
+
+        author_1st = BeautifulSoup(response.text, 'html.parser').find(name='div', class_='author-info')
+        if (not author_1st) or (author_1st.get('data-name') != username):
+            print(f'User <{username}> not exist!')
+            sys.exit(1)
+
+        id = author_1st.get('data-id')
         return id
 
     @print_status
@@ -176,25 +179,32 @@ class MultiThreadScraper():
                 print(e)
                 continue
         wait(futures)
-        if self.scraped:
-            print(f'\nSaved {len(self.scraped)} images to {self.directory}.', end='')
+        sleep(5)
+        saved_images = len([1 for s in self.scraped if s.type == "image"])
+        if saved_images:
+            print(f'\n\nSaved {saved_images} images to {self.directory}.')
 
 
 @click.command()
-@click.option('--id', help='User id.')
-@click.option('--name', help='User name.')
+@click.option('-i', '--id', 'id', help='User id.')
+@click.option('-u', '--username', 'name', help='User name.')
 @click.option('-d', '--directory', 'dir', help='Directory to save images.')
-@click.option('--max-pages', type=int, help='Max pages to parse.')
-@click.option('--max-topics', type=int, help='Max topics to parse.')
-@click.option('--max-workers', default=20, show_default=True, type=int, help='Max thread workers.')
+@click.option('-p', '--max-pages', 'max_pages', type=int, help='Max pages to parse.')
+@click.option('-t', '--max-topics', 'max_topics', type=int, help='Max topics per page to parse.')
+@click.option('-w', '--max-workers', 'max_workers', default=12, show_default=True,
+              type=int, help='Max thread workers.')
 def command(id, name, dir, max_pages, max_topics, max_workers):
-    """Simple program that greets NAME for a total of COUNT times."""
+    """Use multi-threaded to download images from https://www.zcool.com.cn in bulk by username or ID."""
     if not any([id, name]):
         click.echo('Must give a <id> or <username>!')
         sys.exit(1)
 
     scraper = MultiThreadScraper(id, name, dir, max_pages, max_topics, max_workers)
-    scraper.run_scraper()
+    try:
+        scraper.run_scraper()
+    except KeyboardInterrupt:
+        click.echo('\n\nKeyboard Interruption.')
+        sys.exit(1)
 
 
 if __name__ == '__main__':
