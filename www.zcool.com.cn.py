@@ -8,15 +8,15 @@ import os
 import re
 import sys
 from collections import namedtuple
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor, wait, as_completed
 from datetime import datetime
-from functools import wraps
 from queue import Empty, Queue
 from threading import Thread
-from time import sleep
+import time
 from urllib.parse import urljoin, urlparse
 from uuid import uuid4
-import traceback
+from functools import wraps
+import random
 
 import click
 import requests
@@ -28,41 +28,98 @@ PAGE_SUFFIX = '?myCate=0&sort=1&p={page}'
 USER_SUFFIX = '/u/{id}'
 SEARCH_DESIGNER_SUFFIX = '/search/designer?&word={word}'
 TIMEOUT = (10, 20)
+MAX_WORKERS = 20
+RETRIES = 3
 
 
-def update_result(func):
-    @wraps(func)
-    def wrapper(self, scrapy, *args, **kwargs):
-        try:
-            result = func(self, scrapy, *args, **kwargs)
-            self.scraped.add(scrapy)
-        except Exception:
-            print()
-            print(traceback.format_exc())
-            self.failed.add(scrapy)
-        else:
-            return result
-        finally:
-            self.show_task_status()
+def retry(exceptions, tries=3, delay=1, backoff=2, logger=None):
+    """
+    Retry calling the decorated function using an exponential backoff.
+    Args:
+        exceptions: The exception to check. may be a tuple of
+            exceptions to check.
+        tries: Number of times to try (not retry) before giving up.
+        delay: Initial delay between retries in seconds.
+        backoff: Backoff multiplier (e.g. value of 2 will double the delay
+            each retry).
+        logger: Logger to use. If None, print.
+    """
 
-    return wrapper
+    def deco_retry(f):
+
+        @wraps(f)
+        def f_retry(*args, **kwargs):
+            mtries, mdelay = tries, delay or random.uniform(0.5, 1.5)
+            while mtries > 1:
+                try:
+                    return f(*args, **kwargs)
+                except exceptions as e:
+                    msg = '{}, Retrying in {} seconds...'.format(e, mdelay)
+                    if logger:
+                        logger.warning(msg)
+                    else:
+                        print(msg)
+                    time.sleep(mdelay)
+                    mtries -= 1
+                    mdelay *= backoff
+            return f(*args, **kwargs)
+
+        return f_retry  # true decorator
+
+    return deco_retry
 
 
 class MultiThreadScraper():
 
-    def __init__(self, user_id=None, username=None, directory=None, max_pages=None,
-                 max_topics=None, max_workers=None, retries=None, redownload=None):
+    def __init__(self, user_id=None, username=None, directory=None, max_pages=None, max_topics=None,
+                 max_workers=None, retries=None, redownload=None, override=None, proxies=None):
         self.start_time = datetime.now()
-        print(self.start_time.ctime())
+        print(f'\n *** {self.start_time.ctime()} ***\n')
+
+        self.max_topics = max_topics or 'all'
+        self.max_workers = max_workers or MAX_WORKERS
+        self.pool = ThreadPoolExecutor(self.max_workers)
+        self.pages = Queue()
+        self.topics = Queue()
+        self.images = Queue()
+        self.stat = {
+            'npages': 0,
+            'ntopics': 0,
+            'nimages': 0,
+            'pages_pass': set([]),
+            'pages_fail': set([]),
+            'topics_pass': set([]),
+            'topics_fail': set([]),
+            'images_pass': set([]),
+            'images_fail': set([])
+        }
+
+        if retries:
+            global RETRIES
+            RETRIES = retries
+
+        if redownload:
+            self.username = self._reload_records(redownload)
+            self.user_id = self.search_id_by_username(self.username)
+            self.max_pages = self.pages.qsize()
+            self.max_topics = self.topics.qsize()
+            self.directory = os.path.abspath(os.path.join(directory or '', urlparse(HOST_PAGE).netloc,
+                                                          self.convert_to_safe_filename(self.username)))
+            self.stat.update({
+                'npages': self.max_pages,
+                'ntopics': self.max_topics,
+                'nimages': self.images.qsize(),
+            })
+            print(f'Username: {self.username}\n'
+                  f'ID: {self.user_id}\n'
+                  f'Pages: {self.max_pages:2d}\n'
+                  f'Topics: {self.max_topics:3d}\n'
+                  f'Images: {self.images.qsize():4d}\n'
+                  f'Storage directory: {self.directory}', end='\n\n')
+            return
 
         self.user_id = user_id or self.search_id_by_username(username)
-        self.max_topics = max_topics or 'all'
-        self.max_workers = max_workers or 20
         self.base_url = HOST_PAGE + USER_SUFFIX.format(id=self.user_id)
-        self.pool = ThreadPoolExecutor(self.max_workers)
-        self.scraped = set([])
-        self.failed = set([])
-        self.to_crawl = Queue()
 
         response = requests.get(self.base_url, timeout=TIMEOUT)
         soup = BeautifulSoup(markup=response.text, features='html.parser')
@@ -70,7 +127,8 @@ class MultiThreadScraper():
         try:
             author = soup.find(name='div', id='body').get('data-name')
             if username and username != author:
-                raise ValueError('Wrong <user id> or <username>!')
+                print('Wrong <user id> or <username>!')
+                sys.exit(1)
             self.username = author
         except Exception:
             self.username = username or 'anonymous'
@@ -83,44 +141,209 @@ class MultiThreadScraper():
             max_page = 1
         self.max_pages = min(max_pages or 9999, max_page)
 
-        # for i in range(1, self.max_pages + 1):
-        #     url = urljoin(self.base_url, PAGE_SUFFIX.format(page=i))
-        #     scrapy = Scrapy(type='page', author=self.username, title=i, url=url)
-        #     if scrapy not in self.scraped:
-        #         self.to_crawl.put(scrapy)
+        print(f'Username: {self.username}\n'
+              f'ID: {self.user_id}\n'
+              f'Maximum pages: {max_page}\n'
+              f'Pages to scrapy: {self.max_pages}\n'
+              f'Topics to scrapy: {"all" if self.max_topics == "all" else (self.max_pages * self.max_topics)}\n'
+              f'Storage directory: {self.directory}', end='\n\n')
+        self._fetch_all()
 
-        if redownload:
-            self.redownload_images(redownload)
-
-        print(f'Username: {self.username}')
-        print(f'ID: {self.user_id}')
-        print(f'Maximum pages: {max_page}')
-        print(f'Pages to scrapy: {self.max_pages}')
-        print(f'Topics to scrapy: {"all" if self.max_topics == "all" else (self.max_pages * self.max_topics)}')
-        print(f'Storage directory: {self.directory}', end='\n\n')
-        Thread(target=self.show_task_status, args=(0.5,), daemon=True).start()  # background task to update status.
-
-    def redownload_images(self, file):
+    def _reload_records(self, file):
         with open(file, 'r', encoding='utf-8') as ff:
-            faileds = json.loads(ff.read()).get('failed')
-            # print(len([dict(y) for y in set(tuple(x.items()) for x in faileds)]))
-            for fd in faileds:  # set()
-                self.to_crawl.put(Scrapy._make(fd.values()))
-        print()
-        print(self.to_crawl.qsize())
-        print()
+            faileds = json.loads(ff.read()).get('fail')
+            # self.username = faileds[0].get('author', 'Unknown')
+            for fd in faileds:
+                scrapy = Scrapy._make(fd.values())
+                if scrapy.type == 'page':
+                    self.pages.put(scrapy)
+                elif scrapy.type == 'topic':
+                    self.topics.put(scrapy)
+                elif scrapy.type == 'image':
+                    self.images.put(scrapy)
+            return scrapy.author
 
-    @staticmethod
-    def mkdirs_if_not_exist(dir):
-        if not os.path.isdir(dir):
+    def _fetch_all(self):
+        fetch_future = [self.pool.submit(self._generate_all_pages),
+                        self.pool.submit(self._fetch_all_topics),
+                        self.pool.submit(self._fetch_all_images)]
+        end_show_fetch = False
+        t = Thread(target=self._show_fetch_status, kwargs={'end': lambda: end_show_fetch})
+        t.start()
+        wait(fetch_future)
+        end_show_fetch = True
+        t.join()
+
+    def _generate_all_pages(self):
+        for i in range(1, self.max_pages + 1):
+            url = urljoin(self.base_url, PAGE_SUFFIX.format(page=i))
+            scrapy = Scrapy(type='page', author=self.username, title=i, url=url)
+            if scrapy not in self.stat["pages_pass"]:
+                self.pages.put(scrapy)
+
+    def _fetch_all_topics(self):
+        page_future = {}
+        while True:
             try:
-                os.makedirs(dir)
-            except FileExistsError:
-                pass
+                scrapy = self.pages.get(timeout=3)
+                job = self.pool.submit(self.parse_topics, scrapy)
+                page_future[job] = scrapy
+            except Empty:
+                break
+            except Exception as e:
+                continue
+        for idx, future in enumerate(as_completed(page_future)):
+            scrapy = page_future.get(future)
+            try:
+                future.result()
+                self.stat["pages_pass"].add(scrapy)
+            except Exception as exc:
+                self.stat["pages_fail"].add(scrapy)
 
-    @staticmethod
-    def convert_to_safe_filename(filename):
-        return "".join([c for c in filename if c not in r'\/:*?"<>|']).strip()
+    def _fetch_all_images(self):
+        image_future = {}
+        while True:
+            try:
+                scrapy = self.topics.get(timeout=7)
+                job = self.pool.submit(self.parse_images, scrapy)
+                image_future[job] = scrapy
+            except Empty:
+                break
+            except Exception as e:
+                continue
+
+        for idx, future in enumerate(as_completed(image_future)):
+            scrapy = image_future.get(future)
+            try:
+                future.result()
+                self.stat["topics_pass"].add(scrapy)
+            except Exception as exc:
+                self.stat["topics_fail"].add(scrapy)
+
+    def _show_fetch_status(self, interval=0.5, end=None):
+        while True:
+            print(f'Fetched Pages: {self.max_pages:2d},\t'
+                  f'Topics: {self.stat["ntopics"]:3d},\t'
+                  f'Images: {self.stat["nimages"]:4d}', end='\r', flush=True)
+            if (interval == 0) or (end and end()):
+                print('\n')
+                break
+            time.sleep(interval)
+
+    def _show_download_status(self, interval=0.5, end=None):
+        while True:
+            print(f'Time spent: {str(datetime.now() - self.start_time)[:-7]}\tCompleted: '
+                  f'{len(self.stat["images_pass"]) + len(self.stat["images_fail"])}/{self.stat["nimages"]}\t'
+                  f'Failed: {len(self.stat["images_fail"])}', end='\r', flush=True)
+            if (interval == 0) or (end and end()):
+                print('\n')
+                break
+            time.sleep(interval)
+
+    def run_scraper(self):
+        end_show_download = False
+        t = Thread(target=self._show_download_status, kwargs={'end': lambda: end_show_download})
+        t.start()
+
+        image_futures = {}
+        while True:
+            try:
+                scrapy = self.images.get_nowait()
+                if scrapy not in self.stat["images_pass"]:
+                    image_futures[self.pool.submit(self.download_image, scrapy)] = scrapy
+                else:
+                    pass
+            except Empty:
+                break
+            except Exception as e:
+                continue
+
+        for idx, future in enumerate(as_completed(image_futures)):
+            scrapy = image_futures.get(future)
+            try:
+                if future.result():
+                    self.stat["images_pass"].add(scrapy)
+                else:
+                    self.stat["images_fail"].add(scrapy)
+            except Exception as exc:
+                self.stat["images_fail"].add(scrapy)
+
+        end_show_download = True
+        t.join()
+
+        saved_images = len(self.stat["images_pass"])
+        failed_images = len(self.stat["images_fail"])
+        if saved_images or failed_images:
+            if saved_images:
+                print(f'Saved {saved_images:3d} images to {self.directory}.')
+
+            records_path = self.save_records()
+            print(f'Saved records to {records_path}.')
+        else:
+            print('No images to download.')
+
+    @retry(Exception, tries=RETRIES)
+    def parse_topics(self, scrapy):
+        resp = requests.get(scrapy.url, timeout=TIMEOUT)
+        if resp.status_code != 200:
+            raise Exception(f'Response status code: {resp.status_code}')
+
+        cards = BeautifulSoup(resp.text, 'html.parser').find_all(name='a', class_='card-img-hover')
+        for card in (cards if self.max_topics == 'all' else cards[:self.max_topics + 1]):
+            new_scrapy = Scrapy('topic', scrapy.author, card.get('title'), card.get('href'))
+            if new_scrapy not in self.stat["topics_pass"]:
+                self.topics.put(new_scrapy)
+                self.stat["ntopics"] += 1
+        return scrapy
+
+    @retry(Exception, tries=RETRIES)
+    def parse_images(self, scrapy):
+        resp = requests.get(scrapy.url, timeout=TIMEOUT)
+        if resp.status_code != 200:
+            raise Exception(f'Response status code: {resp.status_code}')
+
+        soup = BeautifulSoup(markup=resp.text, features='html.parser')
+        for div in soup.find_all(name='div', class_='reveal-work-wrap text-center'):
+            url = div.find(name='img').get('src')
+            new_scrapy = Scrapy('image', scrapy.author, scrapy.title, url)
+            if new_scrapy not in self.stat["images_pass"]:
+                self.images.put(new_scrapy)
+                self.stat["nimages"] += 1
+        return scrapy
+
+    @retry(Exception, tries=RETRIES)
+    def download_image(self, scrapy):
+        resp = requests.get(scrapy.url, timeout=TIMEOUT)
+        if resp.status_code != 200:
+            raise Exception(f'Response status code: {resp.status_code}')
+
+        path = os.path.join(self.directory, self.convert_to_safe_filename(scrapy.title))
+        self.mkdirs_if_not_exist(path)
+        try:
+            name = re.findall(r'(?<=/)\w*?\.jpg|\.png', scrapy.url, re.IGNORECASE)[0]
+        except IndexError:
+            name = uuid4().hex + '.jpg'
+
+        filename = os.path.join(path, name)
+        if not os.path.isfile(filename):
+            with open(filename, 'wb') as fi:
+                fi.write(resp.content)
+        return scrapy
+
+    @retry(Exception, tries=RETRIES)
+    def save_records(self):
+        filename = f'{self.convert_to_safe_filename(self.start_time.isoformat()[:-7])}.json'
+        abspath = os.path.abspath(os.path.join(self.directory, filename))
+        with open(abspath, 'w', encoding='utf-8') as ff:
+            records = {
+                'time': self.start_time.isoformat(),
+                'success': [scrapy._asdict() for scrapy in
+                            (self.stat["pages_pass"] | self.stat["topics_pass"] | self.stat["images_pass"])],
+                'fail': [scrapy._asdict() for scrapy in
+                         (self.stat["pages_fail"] | self.stat["topics_fail"] | self.stat["images_fail"])]
+            }
+            ff.write(json.dumps(records, ensure_ascii=False, indent=4))
+        return abspath
 
     @staticmethod
     def search_id_by_username(username):
@@ -141,122 +364,17 @@ class MultiThreadScraper():
         id = author_1st.get('data-id')
         return id
 
-    def show_task_status(self, interval=None):
-        print(f'Time spent: {str(datetime.now() - self.start_time)[:-7]} \tRemaining tasks: '
-              f'{self.to_crawl.qsize():5d} \tCompleted tasks: {len(self.scraped):5d}', end='\r', flush=True)
-        while interval:
-            sleep(interval)
-            print(f'Time spent: {str(datetime.now() - self.start_time)[:-7]} \tRemaining tasks: '
-                  f'{self.to_crawl.qsize():5d} \tCompleted tasks: {len(self.scraped):5d}', end='\r', flush=True)
-
-    # @update_result
-    def scrape_page(self, scrapy):
-        try:
-            res = requests.get(scrapy.url, timeout=TIMEOUT)
-            return scrapy, res
-        except requests.RequestException as exc:
-            # print()
-            # print(traceback.format_exc())
-            # print()
-            return scrapy, None
-        except Exception:
-            print()
-            print(traceback.format_exc())
-            print()
-
-    @update_result
-    def parse_topics(self, scrapy, html):
-        cards = BeautifulSoup(html.text, 'html.parser').find_all(name='a', class_='card-img-hover')
-        for card in (cards if self.max_topics == 'all' else cards[:self.max_topics + 1]):
-            new_scrapy = Scrapy('topic', scrapy.author, card.get('title'), card.get('href'))
-            if new_scrapy not in self.scraped:
-                self.to_crawl.put(new_scrapy)
-
-    @update_result
-    def parse_images(self, scrapy, html):
-        soup = BeautifulSoup(markup=html.text, features='html.parser')
-        for div in soup.find_all(name='div', class_='reveal-work-wrap text-center'):
-            url = div.find(name='img').get('src')
-            new_scrapy = Scrapy('image', scrapy.author, scrapy.title, url)
-            if new_scrapy not in self.scraped:
-                self.to_crawl.put(new_scrapy)
-
-    @update_result
-    def save_image(self, scrapy, html):
-        path = os.path.join(self.directory, self.convert_to_safe_filename(scrapy.title))
-        self.mkdirs_if_not_exist(path)
-        try:
-            name = re.findall(r'(?<=/)\w*?\.jpg|\.png', scrapy.url, re.IGNORECASE)[0]
-        except IndexError:
-            name = uuid4().hex + '.jpg'
-        with open(os.path.join(path, name), 'wb') as fi:
-            fi.write(html.content)
-
-    def post_scrape_callback(self, res):
-        scrapy, response = res.result()
-
-        if (not response) or (response.status_code != 200):
-            print()
-            print(response)
-            print(response.status_code if response else -100)
-            self.failed.add(scrapy)
-            self.show_task_status()
-            return
-
-        try:
-            if scrapy.type == 'page':
-                self.parse_topics(scrapy, response)
-            elif scrapy.type == 'topic':
-                self.parse_images(scrapy, response)
-            elif scrapy.type == 'image':
-                self.save_image(scrapy, response)
-            else:
-                print('=====================')
-        except Exception as e:
-            print('\n\n', e)
-            raise
-
-    def save_failed_tasks(self):
-        filename = f'{self.convert_to_safe_filename(self.start_time.isoformat()[:-7])}.json'
-        abspath = os.path.abspath(os.path.join(self.directory, filename))
-        with open(abspath, 'w', encoding='utf-8') as ff:
-            failed_records = {
-                'time': self.start_time.isoformat(),
-                'failed': [scrapy._asdict() for scrapy in self.failed]
-            }
-            ff.write(json.dumps(failed_records, ensure_ascii=False, indent=4))
-        return abspath
-
-    def run_scraper(self):
-        futures = {}
-        while True:
+    @staticmethod
+    def mkdirs_if_not_exist(dir):
+        if not os.path.isdir(dir):
             try:
-                target_scrapy = self.to_crawl.get(timeout=7)
-                if target_scrapy not in self.scraped:
-                    job = self.pool.submit(self.scrape_page, target_scrapy)
-                    job.add_done_callback(self.post_scrape_callback)
-                    futures[job] = target_scrapy
-            except Empty:
-                break
-            except Exception as e:
-                print('\n\n', e)
-                continue
+                os.makedirs(dir)
+            except FileExistsError:
+                pass
 
-        print(f'wait {len(futures)}')
-        wait(futures)
-        sleep(20)
-        saved_images = len([1 for s in self.scraped if s.type == "image"])
-        failed_images = len([1 for s in self.failed if s.type == "image"])
-        if saved_images or failed_images:
-            print(f'\n\nImages download success: {saved_images} \tImages download failed: {failed_images}')
-            if saved_images:
-                print(f'Saved {saved_images} images to {self.directory}.')
-
-            if failed_images:
-                failed_file = self.save_failed_tasks()
-                print(f'Saved {failed_images} failed records to {failed_file}.')
-        else:
-            print('\n\nNo images to download.')
+    @staticmethod
+    def convert_to_safe_filename(filename):
+        return "".join([c for c in filename if c not in r'\/:*?"<>|']).strip()
 
 
 @click.command()
@@ -265,18 +383,23 @@ class MultiThreadScraper():
 @click.option('-d', '--directory', 'dir', help='Directory to save images.')
 @click.option('-p', '--max-pages', 'max_pages', type=int, help='Maximum pages to parse.')
 @click.option('-t', '--max-topics', 'max_topics', type=int, help='Maximum topics per page to parse.')
-@click.option('-w', '--max-workers', 'max_workers', default=20, show_default=True,
+@click.option('-w', '--max-workers', 'max_workers', default=MAX_WORKERS, show_default=True,
               type=int, help='Maximum thread workers.')
-@click.option('-R', '--retries', 'retries', default=0, show_default=True,
+@click.option('-R', '--retries', 'retries', default=RETRIES, show_default=True,
               type=int, help='Repeat download for failed images.')
-@click.option('-r', '--redownload', 'redownload', help='Redownload images from failed file.')
-def command(id, name, dir, max_pages, max_topics, max_workers, retries, redownload):
+@click.option('-r', '--redownload', 'redownload', help='Redownload images from failed records.')
+@click.option('-o', '--override', 'override',  is_flag=True, show_default=True, help='Override existing files.')
+@click.option('--proxies', help='Use proxies to access websites.\nExample:\n{"http": "user:passwd'
+                                '@www.example.com:port",\n"https": "user:passwd@www.example.com:port"}')
+def command(id, name, dir, max_pages, max_topics, max_workers,
+            retries, redownload, override, proxies):
     """Use multi-threaded to download images from https://www.zcool.com.cn in bulk by username or ID."""
-    if not any([id, name]):
+    if not any([id, name, redownload]):
         click.echo('Must give a <id> or <username>!')
         sys.exit(1)
 
-    scraper = MultiThreadScraper(id, name, dir, max_pages, max_topics, max_workers, retries, redownload)
+    scraper = MultiThreadScraper(id, name, dir, max_pages, max_topics, max_workers,
+                                 retries, redownload, override, proxies)
     try:
         scraper.run_scraper()
     except KeyboardInterrupt:
