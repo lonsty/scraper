@@ -264,7 +264,7 @@ class MultiThreadScraper():
 
     def _show_download_status(self, interval=0.5, end=None):
         while True:
-            print(f'Time spent: {str(datetime.now() - self.start_time)[:-7]}\t'
+            print(f'Time used: {str(datetime.now() - self.start_time)[:-7]}\t'
                   f'Failed: {len(self.stat["images_fail"]):3d}\t'
                   f'Completed: {len(self.stat["images_pass"]) + len(self.stat["images_fail"])}'
                   f'/{self.stat["nimages"]}', end='\r', flush=True)
