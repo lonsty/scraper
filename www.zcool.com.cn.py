@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-# @Author: Allen
+# @Author: lonsty
 # @Date:   2019-09-07 18:34:18
-# @Last Modified by:   Allen
+# @Last Modified by:   lonsty
 # @Last Modified time: 2019-09-08 02:58:36
 import json
 import os
@@ -424,4 +424,3 @@ def command(id, name, dir, max_pages, max_topics, max_workers,
 
 if __name__ == '__main__':
     command()
-wanghu6125
