@@ -32,7 +32,7 @@ pip install -r requirements.txt
 通过用户名`username`下载所有图片到路径`path`下：
 
 ```
-python www.zcool.com.cn.py -u <username> -d <path>
+python crawler.py -u <username> -d <path>
 ```
 
 # 使用帮助
@@ -40,11 +40,11 @@ python www.zcool.com.cn.py -u <username> -d <path>
 - 查看所有命令
 
 ```
-python www.zcool.com.cn.py --help
+python crawler.py --help
 ```
 
 ```
-Usage: www.zcool.com.cn.py [OPTIONS]
+Usage: crawler.py [OPTIONS]
 
   Use multi-threaded to download images from https://www.zcool.com.cn in
   bulk by username or ID.
