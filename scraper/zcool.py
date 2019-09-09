@@ -67,7 +67,7 @@ class ZCoolScraper():
             try:
                 self.proxies = json.loads(proxies)
             except Exception:
-                print(f'Proxies <{proxies}> Invalid!')
+                print(f'Invalid proxies: {proxies}')
                 sys.exit(1)
         else:
             self.proxies = None
@@ -98,7 +98,7 @@ class ZCoolScraper():
         try:
             response = requests.get(self.base_url, proxies=self.proxies, timeout=TIMEOUT)
         except Exception:
-            print(f'Failed to connect to {HOST_PAGE}')
+            print(f'Failed to connect to {self.base_url}')
             sys.exit(1)
         soup = BeautifulSoup(markup=response.text, features='html.parser')
 
@@ -143,20 +143,20 @@ class ZCoolScraper():
         if not username:
             print('Must give a <user id> or <username>!')
             sys.exit(1)
+
+        search_url = urljoin(HOST_PAGE, SEARCH_DESIGNER_SUFFIX.format(word=username))
         try:
-            response = requests.get(urljoin(HOST_PAGE, SEARCH_DESIGNER_SUFFIX.format(word=username)),
-                                    proxies=self.proxies, timeout=TIMEOUT)
+            response = requests.get(search_url, proxies=self.proxies, timeout=TIMEOUT)
         except Exception:
-            print(f'Failed to connect to {HOST_PAGE}')
+            print(f'Failed to connect to {search_url}')
             sys.exit(1)
 
         author_1st = BeautifulSoup(response.text, 'html.parser').find(name='div', class_='author-info')
         if (not author_1st) or (author_1st.get('data-name') != username):
-            print(f'User <{username}> not exist!')
+            print(f'Username not exist: {username}')
             sys.exit(1)
 
-        id = author_1st.get('data-id')
-        return id
+        return author_1st.get('data-id')
 
     def _fetch_all(self):
         fetch_future = [self.pool.submit(self._generate_all_pages),
@@ -227,10 +227,11 @@ class ZCoolScraper():
 
     def _show_download_status(self, interval=0.5, end=None):
         while True:
+            completed = len(self.stat["images_pass"]) + len(self.stat["images_fail"])
             print(f'Time used: {str(datetime.now() - self.start_time)[:-7]}\t'
                   f'Failed: {len(self.stat["images_fail"]):3d}\t'
-                  f'Completed: {len(self.stat["images_pass"]) + len(self.stat["images_fail"])}'
-                  f'/{self.stat["nimages"]}', end='\r', flush=True)
+                  f'Completed: {completed / self.stat["nimages"] * 100:.0f}% '
+                  f'({completed}/{self.stat["nimages"]})', end='\r', flush=True)
             if (interval == 0) or (end and end()):
                 print('\n')
                 break
@@ -271,7 +272,7 @@ class ZCoolScraper():
         failed_images = len(self.stat["images_fail"])
         if saved_images or failed_images:
             if saved_images:
-                print(f'Saved {saved_images:3d} images to {self.directory}')
+                print(f'Saved {saved_images} images to {self.directory}')
             records_path = self.save_records()
             print(f'Saved records to {records_path}')
         else:
@@ -355,8 +356,8 @@ class ZCoolScraper():
               type=int, help='Repeat download for failed images.')
 @click.option('-r', '--redownload', 'redownload', help='Redownload images from failed records.')
 @click.option('-o', '--override', 'override',  is_flag=True, show_default=True, help='Override existing files.')
-@click.option('--proxies', help='Use proxies to access websites.\nExample:\n{"http": "user:passwd'
-                                '@www.example.com:port",\n"https": "user:passwd@www.example.com:port"}')
+@click.option('--proxies', help='Use proxies to access websites.\nExample:\n\'{"http": "user:passwd'
+                                '@www.example.com:port",\n"https": "user:passwd@www.example.com:port"}\'')
 def zcool_command(id, name, dir, max_pages, max_topics, max_workers,
                   retries, redownload, override, proxies):
     """Use multi-threaded to download images from https://www.zcool.com.cn in bulk by username or ID."""

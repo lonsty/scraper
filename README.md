@@ -37,11 +37,11 @@ python crawler.py -u <username> -d <path>
 
 运行截图
 
-![screenshot_01.png](docs/screenshots/01.png)
+![screenshot_01.png](screenshots/01.png)
 
 爬取结果
 
-![screenshot_02.png](docs/screenshots/02.png)
+![screenshot_02.png](screenshots/02.png)
 
 # 使用帮助
 
@@ -69,10 +69,8 @@ Options:
   -o, --override             Override existing files.  [default: False]
   --proxies TEXT             Use proxies to access websites.
                              Example:
-                             {"http":
-                             "user:passwd@www.example.com:port",
-                             "https":
-                             "user:passwd@www.example.com:port"}
+                             '{"http": "user:passwd@www.example.com:port",
+                             "https": "user:passwd@www.example.com:port"}'
   --help                     Show this message and exit.
 ```
 
