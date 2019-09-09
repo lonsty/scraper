@@ -35,6 +35,14 @@ pip install -r requirements.txt
 python crawler.py -u <username> -d <path>
 ```
 
+运行截图
+
+![screenshot_01.png](docs/screenshots/01.png)
+
+爬取结果
+
+![screenshot_02.png](docs/screenshots/02.png)
+
 # 使用帮助
 
 - 查看所有命令
