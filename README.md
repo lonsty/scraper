@@ -24,6 +24,7 @@ git clone https://github.com/lonsty/scraper
 ## 2. 安装依赖包
 
 ```
+cd scraper
 pip install -r requirements.txt
 ```
 
