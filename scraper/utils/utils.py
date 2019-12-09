@@ -4,6 +4,7 @@
 import os
 import random
 import time
+from collections import namedtuple
 from functools import wraps
 
 
@@ -51,3 +52,15 @@ def mkdirs_if_not_exist(dir):
 
 def convert_to_safe_filename(filename):
     return "".join([c for c in filename if c not in r'\/:*?"<>|']).strip()
+
+
+def parse_users(ids, names):
+    User = namedtuple('User', 'id name')
+    users = []
+
+    if names:
+        users = [User('', name) for name in names.split(',')]
+    elif ids:
+        users = [User(uid, '') for uid in ids.split(',')]
+
+    return users

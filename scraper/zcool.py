@@ -7,12 +7,12 @@ import json
 import os
 import re
 import sys
+import time
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, wait, as_completed
 from datetime import datetime
 from queue import Empty, Queue
 from threading import Thread
-import time
 from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
@@ -20,7 +20,7 @@ import click
 import requests
 from bs4 import BeautifulSoup
 
-from scraper.utils import convert_to_safe_filename, mkdirs_if_not_exist, retry
+from scraper.utils import convert_to_safe_filename, mkdirs_if_not_exist, parse_users, retry
 
 Scrapy = namedtuple('Scrapy', 'type author title url')
 HOST_PAGE = 'https://www.zcool.com.cn'
@@ -35,11 +35,12 @@ RETRIES = 3
 
 class ZCoolScraper():
 
-    def __init__(self, user_id=None, username=None, directory=None, max_pages=None, max_topics=None,
+    def __init__(self, user_id='', username='', destination=None, max_pages=None, spec_topics=None, max_topics=None,
                  max_workers=None, retries=None, redownload=None, override=None, proxies=None):
         self.start_time = datetime.now()
-        print(f'\n *** {self.start_time.ctime()} ***\n')
+        print(f'\n - - - - - -+-+ {self.start_time.ctime()} +-+- - - - - -\n')
 
+        self.spec_topics = spec_topics
         self.max_topics = max_topics or 'all'
         self.max_workers = max_workers or MAX_WORKERS
         self.pool = ThreadPoolExecutor(self.max_workers)
@@ -77,7 +78,7 @@ class ZCoolScraper():
             self.user_id = self._search_id_by_username(self.username)
             self.max_pages = self.pages.qsize()
             self.max_topics = self.topics.qsize()
-            self.directory = os.path.abspath(os.path.join(directory or '', urlparse(HOST_PAGE).netloc,
+            self.directory = os.path.abspath(os.path.join(destination or '', urlparse(HOST_PAGE).netloc,
                                                           convert_to_safe_filename(self.username)))
             self.stat.update({
                 'npages': self.max_pages,
@@ -105,12 +106,12 @@ class ZCoolScraper():
         try:
             author = soup.find(name='div', id='body').get('data-name')
             if username and username != author:
-                print('Wrong <user id> or <username>!')
+                print(f'Wrong user id:「{user_id}」or username:「{username}」!')
                 sys.exit(1)
             self.username = author
         except Exception:
             self.username = username or 'anonymous'
-        self.directory = os.path.abspath(os.path.join(directory or '', urlparse(HOST_PAGE).netloc,
+        self.directory = os.path.abspath(os.path.join(destination or '', urlparse(HOST_PAGE).netloc,
                                                       convert_to_safe_filename(self.username)))
 
         try:
@@ -119,12 +120,19 @@ class ZCoolScraper():
             max_page = 1
         self.max_pages = min(max_pages or 9999, max_page)
 
+        if self.spec_topics:
+            topics = ', '.join(self.spec_topics)
+        elif self.max_topics == 'all':
+            topics = 'all'
+        else:
+            topics = self.max_pages * self.max_topics
         print(f'Username: {self.username}\n'
               f'ID: {self.user_id}\n'
               f'Maximum pages: {max_page}\n'
               f'Pages to scrapy: {self.max_pages}\n'
-              f'Topics to scrapy: {"all" if self.max_topics == "all" else (self.max_pages * self.max_topics)}\n'
+              f'Topics to scrapy: {topics}\n'
               f'Storage directory: {self.directory}', end='\n\n')
+
         self._fetch_all()
 
     def _reload_records(self, file):
@@ -228,12 +236,14 @@ class ZCoolScraper():
     def _show_download_status(self, interval=0.5, end=None):
         while True:
             completed = len(self.stat["images_pass"]) + len(self.stat["images_fail"])
-            print(f'Time used: {str(datetime.now() - self.start_time)[:-7]}\t'
-                  f'Failed: {len(self.stat["images_fail"]):3d}\t'
-                  f'Completed: {completed / self.stat["nimages"] * 100:.0f}% '
-                  f'({completed}/{self.stat["nimages"]})', end='\r', flush=True)
+            if self.stat["nimages"] > 0:
+                print(f'Time used: {str(datetime.now() - self.start_time)[:-7]}\t'
+                      f'Failed: {len(self.stat["images_fail"]):3d}\t'
+                      f'Completed: {completed / self.stat["nimages"] * 100:.0f}% '
+                      f'({completed}/{self.stat["nimages"]})', end='\r', flush=True)
             if (interval == 0) or (end and end()):
-                print('\n')
+                if self.stat["nimages"] > 0:
+                    print('\n')
                 break
             time.sleep(interval)
 
@@ -286,7 +296,11 @@ class ZCoolScraper():
 
         cards = BeautifulSoup(resp.text, 'html.parser').find_all(name='a', class_='card-img-hover')
         for card in (cards if self.max_topics == 'all' else cards[:self.max_topics + 1]):
-            new_scrapy = Scrapy('topic', scrapy.author, card.get('title'), card.get('href'))
+            title = card.get('title')
+            if self.spec_topics and (title not in self.spec_topics):
+                continue
+
+            new_scrapy = Scrapy('topic', scrapy.author, title, card.get('href'))
             if new_scrapy not in self.stat["topics_pass"]:
                 self.topics.put(new_scrapy)
                 self.stat["ntopics"] += 1
@@ -345,30 +359,42 @@ class ZCoolScraper():
 
 
 @click.command()
-@click.option('-i', '--id', 'id', help='User id.')
-@click.option('-u', '--username', 'name', help='User name.')
-@click.option('-d', '--directory', 'dir', help='Directory to save images.')
-@click.option('-p', '--max-pages', 'max_pages', type=int, help='Maximum pages to parse.')
-@click.option('-t', '--max-topics', 'max_topics', type=int, help='Maximum topics per page to parse.')
-@click.option('-w', '--max-workers', 'max_workers', default=MAX_WORKERS, show_default=True,
-              type=int, help='Maximum thread workers.')
-@click.option('-R', '--retries', 'retries', default=RETRIES, show_default=True,
-              type=int, help='Repeat download for failed images.')
+@click.option('-u', '--usernames', 'names', help='One or more user names, separated by commas.')
+@click.option('-i', '--ids', 'ids', help='One or more user ids, separated by commas.')
+@click.option('-t', '--topics', 'topics', help='Specific topics of this user to download, separated by commas.')
+@click.option('-d', '--destination', 'dest', help='Directory to save images.')
+@click.option('-R', '--retries', 'retries', default=RETRIES, show_default=True, type=int,
+              help='Repeat download for failed images.')
 @click.option('-r', '--redownload', 'redownload', help='Redownload images from failed records.')
-@click.option('-o', '--override', 'override',  is_flag=True, show_default=True, help='Override existing files.')
+@click.option('-o', '--override', 'override', is_flag=True, show_default=True, help='Override existing files.')
+@click.option('--max-pages', 'max_pages', type=int, help='Maximum pages to download.')
+@click.option('--max-topics', 'max_topics', type=int, help='Maximum topics per page to download.')
+@click.option('--max-workers', 'max_workers', default=MAX_WORKERS, show_default=True, type=int,
+              help='Maximum thread workers.')
 @click.option('--proxies', help='Use proxies to access websites.\nExample:\n\'{"http": "user:passwd'
                                 '@www.example.com:port",\n"https": "user:passwd@www.example.com:port"}\'')
-def zcool_command(id, name, dir, max_pages, max_topics, max_workers,
+def zcool_command(ids, names, dest, max_pages, topics, max_topics, max_workers,
                   retries, redownload, override, proxies):
-    """Use multi-threaded to download images from https://www.zcool.com.cn in bulk by username or ID."""
-    if not any([id, name, redownload]):
+    """Use multi-threaded to download images from https://www.zcool.com.cn by usernames or IDs."""
+    if not any([ids, names, redownload]):
         click.echo('Must give a <id> or <username>!')
         sys.exit(1)
 
-    scraper = ZCoolScraper(id, name, dir, max_pages, max_topics, max_workers,
-                           retries, redownload, override, proxies)
-    try:
+    if redownload:
+        scraper = ZCoolScraper(user_id='', username='', destination=dest, max_pages=max_pages, spec_topics=topics,
+                               max_topics=max_topics, max_workers=max_workers, retries=retries, redownload=redownload,
+                               override=override, proxies=proxies)
         scraper.run_scraper()
-    except KeyboardInterrupt:
-        click.echo('\n\nKeyboard Interruption.')
+
+    elif ids or names:
+        topics = topics.split(',') if topics else []
+        users = parse_users(ids, names)
+        for user in users:
+            scraper = ZCoolScraper(user_id=user.id, username=user.name, destination=dest, max_pages=max_pages,
+                                   spec_topics=topics, max_topics=max_topics, max_workers=max_workers, retries=retries,
+                                   redownload=redownload, override=override, proxies=proxies)
+            scraper.run_scraper()
+
+    else:
+        click.echo('Must give a <id> or <username>!')
         sys.exit(1)
