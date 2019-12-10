@@ -135,21 +135,9 @@ class ZCoolScraper():
 
         self._fetch_all()
 
-    def _reload_records(self, file):
-        with open(file, 'r', encoding='utf-8') as ff:
-            for fail in json.loads(ff.read()).get('fail'):
-                scrapy = Scrapy._make(fail.values())
-                if scrapy.type == 'page':
-                    self.pages.put(scrapy)
-                elif scrapy.type == 'topic':
-                    self.topics.put(scrapy)
-                elif scrapy.type == 'image':
-                    self.images.put(scrapy)
-            return scrapy.author
-
     def _search_id_by_username(self, username):
         if not username:
-            print('Must give a <user id> or <username>!')
+            print('Must give an <user id> or <username>!')
             sys.exit(1)
 
         search_url = urljoin(HOST_PAGE, SEARCH_DESIGNER_SUFFIX.format(word=username))
@@ -166,16 +154,17 @@ class ZCoolScraper():
 
         return author_1st.get('data-id')
 
-    def _fetch_all(self):
-        fetch_future = [self.pool.submit(self._generate_all_pages),
-                        self.pool.submit(self._fetch_all_topics),
-                        self.pool.submit(self._fetch_all_images)]
-        end_show_fetch = False
-        t = Thread(target=self._show_fetch_status, kwargs={'end': lambda: end_show_fetch})
-        t.start()
-        wait(fetch_future)
-        end_show_fetch = True
-        t.join()
+    def _reload_records(self, file):
+        with open(file, 'r', encoding='utf-8') as ff:
+            for fail in json.loads(ff.read()).get('fail'):
+                scrapy = Scrapy._make(fail.values())
+                if scrapy.type == 'page':
+                    self.pages.put(scrapy)
+                elif scrapy.type == 'topic':
+                    self.topics.put(scrapy)
+                elif scrapy.type == 'image':
+                    self.images.put(scrapy)
+            return scrapy.author
 
     def _generate_all_pages(self):
         for i in range(1, self.max_pages + 1):
@@ -223,6 +212,17 @@ class ZCoolScraper():
             except Exception:
                 self.stat["topics_fail"].add(scrapy)
 
+    def _fetch_all(self):
+        fetch_future = [self.pool.submit(self._generate_all_pages),
+                        self.pool.submit(self._fetch_all_topics),
+                        self.pool.submit(self._fetch_all_images)]
+        end_show_fetch = False
+        t = Thread(target=self._show_fetch_status, kwargs={'end': lambda: end_show_fetch})
+        t.start()
+        wait(fetch_future)
+        end_show_fetch = True
+        t.join()
+
     def _show_fetch_status(self, interval=0.5, end=None):
         while True:
             print(f'Fetched Pages: {self.max_pages:2d}\t'
@@ -246,47 +246,6 @@ class ZCoolScraper():
                     print('\n')
                 break
             time.sleep(interval)
-
-    def run_scraper(self):
-        end_show_download = False
-        t = Thread(target=self._show_download_status, kwargs={'end': lambda: end_show_download})
-        t.start()
-
-        image_futures = {}
-        while True:
-            try:
-                scrapy = self.images.get_nowait()
-                if scrapy not in self.stat["images_pass"]:
-                    image_futures[self.pool.submit(self.download_image, scrapy)] = scrapy
-                else:
-                    pass
-            except Empty:
-                break
-            except Exception:
-                continue
-
-        for idx, future in enumerate(as_completed(image_futures)):
-            scrapy = image_futures.get(future)
-            try:
-                if future.result():
-                    self.stat["images_pass"].add(scrapy)
-                else:
-                    self.stat["images_fail"].add(scrapy)
-            except Exception:
-                self.stat["images_fail"].add(scrapy)
-
-        end_show_download = True
-        t.join()
-
-        saved_images = len(self.stat["images_pass"])
-        failed_images = len(self.stat["images_fail"])
-        if saved_images or failed_images:
-            if saved_images:
-                print(f'Saved {saved_images} images to {self.directory}')
-            records_path = self.save_records()
-            print(f'Saved records to {records_path}')
-        else:
-            print('No images to download.')
 
     @retry(Exception, tries=RETRIES)
     def parse_topics(self, scrapy):
@@ -357,6 +316,47 @@ class ZCoolScraper():
             ff.write(json.dumps(records, ensure_ascii=False, indent=4))
         return abspath
 
+    def run_scraper(self):
+        end_show_download = False
+        t = Thread(target=self._show_download_status, kwargs={'end': lambda: end_show_download})
+        t.start()
+
+        image_futures = {}
+        while True:
+            try:
+                scrapy = self.images.get_nowait()
+                if scrapy not in self.stat["images_pass"]:
+                    image_futures[self.pool.submit(self.download_image, scrapy)] = scrapy
+                else:
+                    pass
+            except Empty:
+                break
+            except Exception:
+                continue
+
+        for idx, future in enumerate(as_completed(image_futures)):
+            scrapy = image_futures.get(future)
+            try:
+                if future.result():
+                    self.stat["images_pass"].add(scrapy)
+                else:
+                    self.stat["images_fail"].add(scrapy)
+            except Exception:
+                self.stat["images_fail"].add(scrapy)
+
+        end_show_download = True
+        t.join()
+
+        saved_images = len(self.stat["images_pass"])
+        failed_images = len(self.stat["images_fail"])
+        if saved_images or failed_images:
+            if saved_images:
+                print(f'Saved {saved_images} images to {self.directory}')
+            records_path = self.save_records()
+            print(f'Saved records to {records_path}')
+        else:
+            print('No images to download.')
+
 
 @click.command()
 @click.option('-u', '--usernames', 'names', help='One or more user names, separated by commas.')
@@ -376,10 +376,6 @@ class ZCoolScraper():
 def zcool_command(ids, names, dest, max_pages, topics, max_topics, max_workers,
                   retries, redownload, override, proxies):
     """Use multi-threaded to download images from https://www.zcool.com.cn by usernames or IDs."""
-    if not any([ids, names, redownload]):
-        click.echo('Must give a <id> or <username>!')
-        sys.exit(1)
-
     if redownload:
         scraper = ZCoolScraper(user_id='', username='', destination=dest, max_pages=max_pages, spec_topics=topics,
                                max_topics=max_topics, max_workers=max_workers, retries=retries, redownload=redownload,
@@ -396,5 +392,5 @@ def zcool_command(ids, names, dest, max_pages, topics, max_topics, max_workers,
             scraper.run_scraper()
 
     else:
-        click.echo('Must give a <id> or <username>!')
+        click.echo('Must give an <id> or <username>!')
         sys.exit(1)
