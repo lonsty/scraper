@@ -4,12 +4,14 @@
 
 ### 特点：
 
-1. 极速下载：多线程异步下载，可以根据需要设置线程数
-2. 异常重试：只要重试次数足够多，就没有下载不下来的图片 \(^o^)/！
-3. 增量下载：设计师/用户有新的上传，再跑一遍程序就行了 O(∩_∩)O 嗯！
-4. 支持代理：可以配置使用代理
-5. 自选主题（NEW）：可以选择下载用户的特定主题，而不是该用户下的所有内容
-6. 多个用户（NEW）：支持一次性输入多个用户名或 ID
+- [x] 极速下载：多线程异步下载，可以根据需要设置线程数
+- [x] 异常重试：只要重试次数足够多，就没有下载不下来的图片 \(^o^)/！
+- [x] 增量下载：设计师/用户有新的上传，再跑一遍程序就行了 O(∩_∩)O 嗯！
+- [x] 支持代理：可以配置使用代理
+- [x] 自选主题：可以选择下载用户的特定主题，而不是该用户下的所有内容
+- [x] 多个用户：支持一次性输入多个用户名或 ID
+- [x] 超清原图（NEW）：从V0.1.2开始，默认下载超清原图（约几MB），使用参数`--thumbnail`下载缩略图（宽最大1280px，约500KB）
+- [x] 新增格式（NEW）：支持下载JPG、PNG、GIF、BMP格式的图片
 
 ### 环境：
 
@@ -87,6 +89,8 @@ Options:
   -R, --retries INTEGER   Repeat download for failed images.  [default: 3]
   -r, --redownload TEXT   Redownload images from failed records.
   -o, --override          Override existing files.  [default: False]
+  --thumbnail             Download thumbnails with a maximum width of 1280px.
+                          [default: False]
   --max-pages INTEGER     Maximum pages to download.
   --max-topics INTEGER    Maximum topics per page to download.
   --max-workers INTEGER   Maximum thread workers.  [default: 20]
@@ -100,6 +104,13 @@ Options:
 ```
 
 # 更新历史
+
+- ## Version 0.1.2 (2020.03.24)
+
+    新功能：
+    
+    - 新增下载超清原图（默认选项，约几MB），使用参数`--thumbnail`下载缩略图（宽最大1280px，约500KB）
+    - 新增支持下载JPG、PNG、GIF、BMP格式的图片
 
 - ## Version 0.1.1 (2019.12.09)
 
@@ -123,6 +134,6 @@ Options:
 
 # LICENSE
 
-[MIT](LICENSE)
+此项目使用 [MIT](LICENSE) 开源协议
 
 **注意**：使用此工具下载的所有作品，版权归原作者所有，请谨慎使用！
