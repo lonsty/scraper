@@ -36,7 +36,7 @@ RETRIES = 3
 class ZCoolScraper():
 
     def __init__(self, user_id='', username='', destination=None, max_pages=None, spec_topics=None, max_topics=None,
-                 max_workers=None, retries=None, redownload=None, override=None, proxies=None):
+                 max_workers=None, retries=None, redownload=None, override=False, proxies=None, thumbnail=False):
         self.start_time = datetime.now()
         print(f'\n - - - - - -+-+ {self.start_time.ctime()} +-+- - - - - -\n')
 
@@ -45,6 +45,7 @@ class ZCoolScraper():
         self.max_workers = max_workers or MAX_WORKERS
         self.pool = ThreadPoolExecutor(self.max_workers)
         self.override = override
+        self.thumbnail = thumbnail
         self.pages = Queue()
         self.topics = Queue()
         self.images = Queue()
@@ -274,6 +275,8 @@ class ZCoolScraper():
         soup = BeautifulSoup(markup=resp.text, features='html.parser')
         for div in soup.find_all(name='div', class_='reveal-work-wrap text-center'):
             url = div.find(name='img').get('src')
+            if not self.thumbnail:
+                url = url.split('@')[0]  # 原图地址
             new_scrapy = Scrapy('image', scrapy.author, scrapy.title, url)
             if new_scrapy not in self.stat["images_pass"]:
                 self.images.put(new_scrapy)
@@ -283,7 +286,7 @@ class ZCoolScraper():
     @retry(Exception, tries=RETRIES)
     def download_image(self, scrapy):
         try:
-            name = re.findall(r'(?<=/)\w*?\.jpg|\.png', scrapy.url, re.IGNORECASE)[0]
+            name = re.findall(r'(?<=/)\w*?\.(?:jpg|gif|png|bmp)', scrapy.url, re.IGNORECASE)[0]
         except IndexError:
             name = uuid4().hex + '.jpg'
 
@@ -366,7 +369,10 @@ class ZCoolScraper():
 @click.option('-R', '--retries', 'retries', default=RETRIES, show_default=True, type=int,
               help='Repeat download for failed images.')
 @click.option('-r', '--redownload', 'redownload', help='Redownload images from failed records.')
-@click.option('-o', '--override', 'override', is_flag=True, show_default=True, help='Override existing files.')
+@click.option('-o', '--override', 'override', is_flag=True, default=False, show_default=True,
+              help='Override existing files.')
+@click.option('--thumbnail', 'thumbnail', is_flag=True, default=False, show_default=True,
+              help='Download thumbnails with a maximum width of 1280px.')
 @click.option('--max-pages', 'max_pages', type=int, help='Maximum pages to download.')
 @click.option('--max-topics', 'max_topics', type=int, help='Maximum topics per page to download.')
 @click.option('--max-workers', 'max_workers', default=MAX_WORKERS, show_default=True, type=int,
@@ -374,12 +380,12 @@ class ZCoolScraper():
 @click.option('--proxies', help='Use proxies to access websites.\nExample:\n\'{"http": "user:passwd'
                                 '@www.example.com:port",\n"https": "user:passwd@www.example.com:port"}\'')
 def zcool_command(ids, names, dest, max_pages, topics, max_topics, max_workers,
-                  retries, redownload, override, proxies):
+                  retries, redownload, override, proxies, thumbnail):
     """Use multi-threaded to download images from https://www.zcool.com.cn by usernames or IDs."""
     if redownload:
         scraper = ZCoolScraper(user_id='', username='', destination=dest, max_pages=max_pages, spec_topics=topics,
                                max_topics=max_topics, max_workers=max_workers, retries=retries, redownload=redownload,
-                               override=override, proxies=proxies)
+                               override=override, proxies=proxies, thumbnail=thumbnail)
         scraper.run_scraper()
 
     elif ids or names:
