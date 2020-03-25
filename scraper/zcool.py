@@ -28,7 +28,7 @@ PAGE_SUFFIX = '?myCate=0&sort=1&p={page}'
 USER_SUFFIX = '/u/{id}'
 SEARCH_DESIGNER_SUFFIX = '/search/designer?&word={word}'
 TIMEOUT = (10, 20)
-Q_TIMEOUT = 5
+Q_TIMEOUT = 1
 MAX_WORKERS = 20
 RETRIES = 3
 
@@ -134,6 +134,7 @@ class ZCoolScraper():
               f'Topics to scrapy: {topics}\n'
               f'Storage directory: {self.directory}', end='\n\n')
 
+        self.END_PARSING_TOPICS = False
         self._fetch_all()
 
     def _search_id_by_username(self, username):
@@ -192,6 +193,7 @@ class ZCoolScraper():
                 self.stat["pages_pass"].add(scrapy)
             except Exception as exc:
                 self.stat["pages_fail"].add(scrapy)
+        self.END_PARSING_TOPICS = True
 
     def _fetch_all_images(self):
         image_future = {}
@@ -201,7 +203,8 @@ class ZCoolScraper():
                 if scrapy not in self.stat["topics_pass"]:
                     image_future[self.pool.submit(self.parse_images, scrapy)] = scrapy
             except Empty:
-                break
+                if self.END_PARSING_TOPICS:
+                    break
             except Exception:
                 continue
 
