@@ -19,6 +19,7 @@ from uuid import uuid4
 import click
 import requests
 from bs4 import BeautifulSoup
+from termcolor import colored, cprint
 
 from scraper.utils import convert_to_safe_filename, mkdirs_if_not_exist, parse_users, retry
 
@@ -69,7 +70,7 @@ class ZCoolScraper():
             try:
                 self.proxies = json.loads(proxies)
             except Exception:
-                print(f'Invalid proxies: {proxies}')
+                cprint(f'Invalid proxies: {proxies}', 'yellow')
                 sys.exit(1)
         else:
             self.proxies = None
@@ -86,12 +87,12 @@ class ZCoolScraper():
                 'ntopics': self.max_topics,
                 'nimages': self.images.qsize(),
             })
-            print(f'Username: {self.username}\n'
-                  f'ID: {self.user_id}\n'
-                  f'Pages to scrapy: {self.max_pages:2d}\n'
-                  f'Topics to scrapy: {self.max_topics:3d}\n'
-                  f'Images to scrapy: {self.images.qsize():4d}\n'
-                  f'Storage directory: {self.directory}', end='\n\n')
+            print(f'{"Username".rjust(17)}: {colored(self.username, "cyan")}\n'
+                  f'{"User ID".rjust(17)}: {self.user_id}\n'
+                  f'{"Pages to scrapy".rjust(17)}: {self.max_pages:2d}\n'
+                  f'{"Topics to scrapy".rjust(17)}: {self.max_topics:3d}\n'
+                  f'{"Images to scrapy".rjust(17)}: {self.images.qsize():4d}\n'
+                  f'Storage directory: {colored(self.directory, attrs=["underline"])}', end='\n\n')
             return
 
         self.user_id = user_id or self._search_id_by_username(username)
@@ -100,14 +101,14 @@ class ZCoolScraper():
         try:
             response = requests.get(self.base_url, proxies=self.proxies, timeout=TIMEOUT)
         except Exception:
-            print(f'Failed to connect to {self.base_url}')
+            cprint(f'Failed to connect to {self.base_url}', 'red')
             sys.exit(1)
         soup = BeautifulSoup(markup=response.text, features='html.parser')
 
         try:
             author = soup.find(name='div', id='body').get('data-name')
             if username and username != author:
-                print(f'Wrong user id:「{user_id}」or username:「{username}」!')
+                cprint(f'Invalid user id:「{user_id}」or username:「{username}」!', 'red')
                 sys.exit(1)
             self.username = author
         except Exception:
@@ -127,31 +128,31 @@ class ZCoolScraper():
             topics = 'all'
         else:
             topics = self.max_pages * self.max_topics
-        print(f'Username: {self.username}\n'
-              f'ID: {self.user_id}\n'
-              f'Maximum pages: {max_page}\n'
-              f'Pages to scrapy: {self.max_pages}\n'
-              f'Topics to scrapy: {topics}\n'
-              f'Storage directory: {self.directory}', end='\n\n')
+        print(f'{"Username".rjust(17)}: {colored(self.username, "cyan")}\n'
+              f'{"User ID".rjust(17)}: {self.user_id}\n'
+              f'{"Maximum pages".rjust(17)}: {max_page}\n'
+              f'{"Pages to scrapy".rjust(17)}: {self.max_pages}\n'
+              f'{"Topics to scrapy".rjust(17)}: {topics}\n'
+              f'Storage directory: {colored(self.directory, attrs=["underline"])}', end='\n\n')
 
         self.END_PARSING_TOPICS = False
         self._fetch_all()
 
     def _search_id_by_username(self, username):
         if not username:
-            print('Must give an <user id> or <username>!')
+            cprint('Must give an <user id> or <username>!', 'yellow')
             sys.exit(1)
 
         search_url = urljoin(HOST_PAGE, SEARCH_DESIGNER_SUFFIX.format(word=username))
         try:
             response = requests.get(search_url, proxies=self.proxies, timeout=TIMEOUT)
         except Exception:
-            print(f'Failed to connect to {search_url}')
+            cprint(f'Failed to connect to {search_url}', 'red')
             sys.exit(1)
 
         author_1st = BeautifulSoup(response.text, 'html.parser').find(name='div', class_='author-info')
         if (not author_1st) or (author_1st.get('data-name') != username):
-            print(f'Username not exist: {username}')
+            cprint(f'Username does not exist: {username}', 'yellow')
             sys.exit(1)
 
         return author_1st.get('data-id')
@@ -229,9 +230,11 @@ class ZCoolScraper():
 
     def _show_fetch_status(self, interval=0.5, end=None):
         while True:
-            print(f'Fetched Pages: {self.max_pages:2d}\t'
-                  f'Topics: {self.stat["ntopics"]:3d}\t'
-                  f'Images: {self.stat["nimages"]:4d}', end='\r', flush=True)
+            status = 'Fetched Pages: {pages}\tTopics: {topics}\tImages: {images}'.format(
+                pages=colored(str(self.max_pages).rjust(3), 'blue'),
+                topics=colored(str(self.stat["ntopics"]).rjust(3), 'blue'),
+                images=colored(str(self.stat["nimages"]).rjust(5), 'blue'))
+            print(status, end='\r', flush=True)
             if (interval == 0) or (end and end()):
                 print('\n')
                 break
@@ -241,10 +244,12 @@ class ZCoolScraper():
         while True:
             completed = len(self.stat["images_pass"]) + len(self.stat["images_fail"])
             if self.stat["nimages"] > 0:
-                print(f'Time used: {str(datetime.now() - self.start_time)[:-7]}\t'
-                      f'Failed: {len(self.stat["images_fail"]):3d}\t'
-                      f'Completed: {completed / self.stat["nimages"] * 100:.0f}% '
-                      f'({completed}/{self.stat["nimages"]})', end='\r', flush=True)
+                status = 'Time used: {time_used}\tFailed: {failed}\tCompleted: {completed}'.format(
+                    time_used=colored(str(datetime.now() - self.start_time)[:-7], 'yellow'),
+                    failed=colored(str(len(self.stat["images_fail"])).rjust(3), 'red'),
+                    completed=colored(str(int(completed / self.stat["nimages"] * 100))
+                                      + f'({completed}/{self.stat["nimages"]})', 'green'))
+                print(status, end='\r', flush=True)
             if (interval == 0) or (end and end()):
                 if self.stat["nimages"] > 0:
                     print('\n')
@@ -357,11 +362,11 @@ class ZCoolScraper():
         failed_images = len(self.stat["images_fail"])
         if saved_images or failed_images:
             if saved_images:
-                print(f'Saved {saved_images} images to {self.directory}')
+                print(f'Saved {colored(saved_images, "green")} images to {colored(self.directory, attrs=["underline"])}')
             records_path = self.save_records()
-            print(f'Saved records to {records_path}')
+            print(f'Saved records to {colored(records_path, attrs=["underline"])}')
         else:
-            print('No images to download.')
+            cprint('No images to download.', 'yellow')
 
 
 @click.command()

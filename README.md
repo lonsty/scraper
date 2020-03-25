@@ -42,7 +42,7 @@ $ python crawler.py -u <username> -d <path>
 
 运行截图
 
-![screenshot_01.png](screenshots/01.png)
+![screenshot_01.png](screenshots/03.png)
 
 爬取结果
 
@@ -104,6 +104,11 @@ Options:
 ```
 
 # 更新历史
+
+- ## 2020.03.25
+
+    - 优化了终端输出信息，用不同颜色文字进行了标识
+    - 修复了在低网速下无法下载图片的问题，并加快了整体下载速度
 
 - ## Version 0.1.2 (2020.03.24)
 

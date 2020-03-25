@@ -9,6 +9,7 @@ verify_ssl = true
 beautifulsoup4 = "*"
 click = "*"
 requests = "*"
+termcolor = "*"
 
 [requires]
 python_version = "3.6"
