@@ -248,7 +248,7 @@ class ZCoolScraper():
                     time_used=colored(str(datetime.now() - self.start_time)[:-7], 'yellow'),
                     failed=colored(str(len(self.stat["images_fail"])).rjust(3), 'red'),
                     completed=colored(str(int(completed / self.stat["nimages"] * 100))
-                                      + f'({completed}/{self.stat["nimages"]})', 'green'))
+                                      + f'% ({completed}/{self.stat["nimages"]})', 'green'))
                 print(status, end='\r', flush=True)
             if (interval == 0) or (end and end()):
                 if self.stat["nimages"] > 0:
