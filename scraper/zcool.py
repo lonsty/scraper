@@ -28,7 +28,7 @@ HOST_PAGE = 'https://www.zcool.com.cn'
 PAGE_SUFFIX = '?myCate=0&sort=1&p={page}'
 USER_SUFFIX = '/u/{id}'
 SEARCH_DESIGNER_SUFFIX = '/search/designer?&word={word}'
-TIMEOUT = (10, 20)
+TIMEOUT = 30
 Q_TIMEOUT = 1
 MAX_WORKERS = 20
 RETRIES = 3
