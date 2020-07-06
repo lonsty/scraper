@@ -7,12 +7,12 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, wait, as_completed
 from datetime import datetime
 from queue import Empty, Queue
-from threading import Thread
 from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
@@ -24,14 +24,33 @@ from termcolor import colored, cprint
 from scraper.utils import convert_to_safe_filename, mkdirs_if_not_exist, parse_users, retry
 
 Scrapy = namedtuple('Scrapy', 'type author title url')
+HEADERS = {'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+                         '(KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36'}
 HOST_PAGE = 'https://www.zcool.com.cn'
 PAGE_SUFFIX = '?myCate=0&sort=1&p={page}'
 USER_SUFFIX = '/u/{id}'
 SEARCH_DESIGNER_SUFFIX = '/search/designer?&word={word}'
-TIMEOUT = (10, 20)
+TIMEOUT = 30
 Q_TIMEOUT = 1
 MAX_WORKERS = 20
 RETRIES = 3
+
+thread_local = threading.local()
+
+
+def get_session():
+    if not hasattr(thread_local, "session"):
+        thread_local.session = requests.Session()
+    return thread_local.session
+
+
+@retry(Exception)
+def session_request(url: str, method: str='GET') -> requests.Response:
+    session = get_session()
+
+    with session.request(method, url, headers=HEADERS, timeout=TIMEOUT) as resp:
+        resp.raise_for_status()
+        return resp
 
 
 class ZCoolScraper():
@@ -99,8 +118,11 @@ class ZCoolScraper():
         self.base_url = urljoin(HOST_PAGE, USER_SUFFIX.format(id=self.user_id))
 
         try:
-            response = requests.get(self.base_url, proxies=self.proxies, timeout=TIMEOUT)
-        except Exception:
+            response = session_request(self.base_url)
+        except requests.exceptions.ProxyError:
+            cprint('Cannot connect to proxy.', 'red')
+            sys.exit(1)
+        except Exception as e:
             cprint(f'Failed to connect to {self.base_url}', 'red')
             sys.exit(1)
         soup = BeautifulSoup(markup=response.text, features='html.parser')
@@ -145,9 +167,12 @@ class ZCoolScraper():
 
         search_url = urljoin(HOST_PAGE, SEARCH_DESIGNER_SUFFIX.format(word=username))
         try:
-            response = requests.get(search_url, proxies=self.proxies, timeout=TIMEOUT)
-        except Exception:
-            cprint(f'Failed to connect to {search_url}', 'red')
+            response = session_request(search_url)
+        except requests.exceptions.ProxyError:
+            cprint('Cannot connect to proxy.', 'red')
+            sys.exit(1)
+        except Exception as e:
+            cprint(f'Failed to connect to {self.base_url}', 'red')
             sys.exit(1)
 
         author_1st = BeautifulSoup(response.text, 'html.parser').find(name='div', class_='author-info')
@@ -194,6 +219,7 @@ class ZCoolScraper():
                 self.stat["pages_pass"].add(scrapy)
             except Exception as exc:
                 self.stat["pages_fail"].add(scrapy)
+                cprint(f'GET page: {scrapy.url} failed.', 'red')
         self.END_PARSING_TOPICS = True
 
     def _fetch_all_images(self):
@@ -216,17 +242,22 @@ class ZCoolScraper():
                 self.stat["topics_pass"].add(scrapy)
             except Exception:
                 self.stat["topics_fail"].add(scrapy)
+                cprint(f'GET topic: {scrapy.url} failed.', 'red')
 
     def _fetch_all(self):
         fetch_future = [self.pool.submit(self._generate_all_pages),
                         self.pool.submit(self._fetch_all_topics),
                         self.pool.submit(self._fetch_all_images)]
         end_show_fetch = False
-        t = Thread(target=self._show_fetch_status, kwargs={'end': lambda: end_show_fetch})
+        t = threading.Thread(target=self._show_fetch_status, kwargs={'end': lambda: end_show_fetch})
         t.start()
-        wait(fetch_future)
-        end_show_fetch = True
-        t.join()
+        try:
+            wait(fetch_future)
+        except KeyboardInterrupt:
+            raise
+        finally:
+            end_show_fetch = True
+            t.join()
 
     def _show_fetch_status(self, interval=0.5, end=None):
         while True:
@@ -256,11 +287,8 @@ class ZCoolScraper():
                 break
             time.sleep(interval)
 
-    @retry(Exception, tries=RETRIES)
     def parse_topics(self, scrapy):
-        resp = requests.get(scrapy.url, proxies=self.proxies, timeout=TIMEOUT)
-        if resp.status_code != 200:
-            raise Exception(f'Response status code: {resp.status_code}')
+        resp = session_request(scrapy.url)
 
         cards = BeautifulSoup(resp.text, 'html.parser').find_all(name='a', class_='card-img-hover')
         for card in (cards if self.max_topics == 'all' else cards[:self.max_topics + 1]):
@@ -274,11 +302,8 @@ class ZCoolScraper():
                 self.stat["ntopics"] += 1
         return scrapy
 
-    @retry(Exception, tries=RETRIES)
     def parse_images(self, scrapy):
-        resp = requests.get(scrapy.url, proxies=self.proxies, timeout=TIMEOUT)
-        if resp.status_code != 200:
-            raise Exception(f'Response status code: {resp.status_code}')
+        resp = session_request(scrapy.url)
 
         soup = BeautifulSoup(markup=resp.text, features='html.parser')
         for div in soup.find_all(name='div', class_='reveal-work-wrap text-center'):
@@ -291,7 +316,6 @@ class ZCoolScraper():
                 self.stat["nimages"] += 1
         return scrapy
 
-    @retry(Exception, tries=RETRIES)
     def download_image(self, scrapy):
         try:
             name = re.findall(r'(?<=/)\w*?\.(?:jpg|gif|png|bmp)', scrapy.url, re.IGNORECASE)[0]
@@ -303,16 +327,13 @@ class ZCoolScraper():
         if (not self.override) and os.path.isfile(filename):
             return scrapy
 
-        resp = requests.get(scrapy.url, proxies=self.proxies, timeout=TIMEOUT)
-        if resp.status_code != 200:
-            raise Exception(f'Response status code: {resp.status_code}')
+        resp = session_request(scrapy.url)
 
         mkdirs_if_not_exist(path)
         with open(filename, 'wb') as fi:
             fi.write(resp.content)
         return scrapy
 
-    @retry(Exception, tries=RETRIES)
     def save_records(self):
         filename = f'{convert_to_safe_filename(self.start_time.isoformat()[:-7])}.json'
         abspath = os.path.abspath(os.path.join(self.directory, filename))
@@ -329,7 +350,7 @@ class ZCoolScraper():
 
     def run_scraper(self):
         end_show_download = False
-        t = Thread(target=self._show_download_status, kwargs={'end': lambda: end_show_download})
+        t = threading.Thread(target=self._show_download_status, kwargs={'end': lambda: end_show_download})
         t.start()
 
         image_futures = {}
@@ -342,21 +363,26 @@ class ZCoolScraper():
                     pass
             except Empty:
                 break
+            except KeyboardInterrupt:
+                raise
             except Exception:
                 continue
 
-        for idx, future in enumerate(as_completed(image_futures)):
-            scrapy = image_futures.get(future)
-            try:
-                if future.result():
-                    self.stat["images_pass"].add(scrapy)
-                else:
+        try:
+            for idx, future in enumerate(as_completed(image_futures)):
+                scrapy = image_futures.get(future)
+                try:
+                    if future.result():
+                        self.stat["images_pass"].add(scrapy)
+                    else:
+                        self.stat["images_fail"].add(scrapy)
+                except Exception:
                     self.stat["images_fail"].add(scrapy)
-            except Exception:
-                self.stat["images_fail"].add(scrapy)
-
-        end_show_download = True
-        t.join()
+        except KeyboardInterrupt:
+            raise
+        finally:
+            end_show_download = True
+            t.join()
 
         saved_images = len(self.stat["images_pass"])
         failed_images = len(self.stat["images_fail"])
@@ -407,4 +433,5 @@ def zcool_command(ids, names, dest, max_pages, topics, max_topics, max_workers,
 
     else:
         click.echo('Must give an <id> or <username>!')
-        sys.exit(1)
+        return 1
+    return 0

@@ -32,6 +32,8 @@ def retry(exceptions, tries=3, delay=1, backoff=2, logger=None):
                 except exceptions as e:
                     if logger:
                         logger.warning('{}, Retrying in {} seconds...'.format(e, mdelay))
+                    # else:
+                    #     print('{}, Retrying in {} seconds...'.format(e, mdelay))
                     time.sleep(mdelay)
                     mtries -= 1
                     mdelay *= backoff
