@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 # @Author: lonsty
 # @Date:   2019-09-07 18:34:18
-# @Last Modified by:   lonsty
-# @Last Modified time: 2019-09-08 02:58:36
 import json
 import os
 import re
@@ -13,23 +11,26 @@ from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, wait, as_completed
 from datetime import datetime
 from queue import Empty, Queue
-from urllib.parse import urljoin, urlparse
+# from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
 import click
 import requests
+from requests.compat import urljoin, urlparse
 from bs4 import BeautifulSoup
 from termcolor import colored, cprint
 
-from scraper.utils import convert_to_safe_filename, mkdirs_if_not_exist, parse_users, retry
+from scraper.utils import convert_to_safe_filename, mkdirs_if_not_exist, parse_users, retry, Spider as Scrapy
 
-Scrapy = namedtuple('Scrapy', 'type author title url')
+# Scrapy = namedtuple('Scrapy', 'type author title url')
+# Scrapy = namedtuple('Scrapy', 'type author title objid index url')
 HEADERS = {'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
                          '(KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36'}
 HOST_PAGE = 'https://www.zcool.com.cn'
 PAGE_SUFFIX = '?myCate=0&sort=1&p={page}'
 USER_SUFFIX = '/u/{id}'
 SEARCH_DESIGNER_SUFFIX = '/search/designer?&word={word}'
+WORK_SUFFIX = '/work/content/show?p=1&objectId={objid}'
 TIMEOUT = 30
 Q_TIMEOUT = 1
 MAX_WORKERS = 20
@@ -39,6 +40,10 @@ thread_local = threading.local()
 
 
 def get_session():
+    """
+    使线程获取同一个Session，可减少 TCP 连接数，加速请求。
+    :return: requests.Session
+    """
     if not hasattr(thread_local, "session"):
         thread_local.session = requests.Session()
     return thread_local.session
@@ -46,6 +51,12 @@ def get_session():
 
 @retry(Exception)
 def session_request(url: str, method: str='GET') -> requests.Response:
+    """
+    使用 session 请求数据。使用了装饰器 retry，在网络异常导致错误时会重试。
+    :param url: 目标请求 URL
+    :param method: 请求方式
+    :return requests.Response: 响应数据
+    """
     session = get_session()
 
     with session.request(method, url, headers=HEADERS, timeout=TIMEOUT) as resp:
@@ -55,8 +66,9 @@ def session_request(url: str, method: str='GET') -> requests.Response:
 
 class ZCoolScraper():
 
-    def __init__(self, user_id='', username='', destination=None, max_pages=None, spec_topics=None, max_topics=None,
-                 max_workers=None, retries=None, redownload=None, override=False, proxies=None, thumbnail=False):
+    def __init__(self, user_id='', username='', destination=None, max_pages=None,
+                 spec_topics=None, max_topics=None, max_workers=None, retries=None,
+                 redownload=None, override=False, thumbnail=False):
         self.start_time = datetime.now()
         print(f'\n - - - - - -+-+ {self.start_time.ctime()} +-+- - - - - -\n')
 
@@ -73,26 +85,18 @@ class ZCoolScraper():
             'npages': 0,
             'ntopics': 0,
             'nimages': 0,
-            'pages_pass': set([]),
-            'pages_fail': set([]),
-            'topics_pass': set([]),
-            'topics_fail': set([]),
-            'images_pass': set([]),
-            'images_fail': set([])
+            'pages_pass': set(),
+            'pages_fail': set(),
+            'topics_pass': set(),
+            'topics_fail': set(),
+            'images_pass': set(),
+            'images_fail': set()
         }
 
         if retries:
+            # 覆盖全局变量 RETRIES
             global RETRIES
             RETRIES = retries
-
-        if isinstance(proxies, str):
-            try:
-                self.proxies = json.loads(proxies)
-            except Exception:
-                cprint(f'Invalid proxies: {proxies}', 'yellow')
-                sys.exit(1)
-        else:
-            self.proxies = None
 
         if redownload:
             self.username = self._reload_records(redownload)
@@ -165,9 +169,8 @@ class ZCoolScraper():
             cprint('Must give an <user id> or <username>!', 'yellow')
             sys.exit(1)
 
-        search_url = urljoin(HOST_PAGE, SEARCH_DESIGNER_SUFFIX.format(word=username))
         try:
-            response = session_request(search_url)
+            response = session_request(urljoin(HOST_PAGE, SEARCH_DESIGNER_SUFFIX.format(word=username)))
         except requests.exceptions.ProxyError:
             cprint('Cannot connect to proxy.', 'red')
             sys.exit(1)
@@ -183,9 +186,9 @@ class ZCoolScraper():
         return author_1st.get('data-id')
 
     def _reload_records(self, file):
-        with open(file, 'r', encoding='utf-8') as ff:
-            for fail in json.loads(ff.read()).get('fail'):
-                scrapy = Scrapy._make(fail.values())
+        with open(file, 'r', encoding='utf-8') as f:
+            for fail in json.loads(f.read()).get('fail'):
+                scrapy = Scrapy(**fail.values())
                 if scrapy.type == 'page':
                     self.pages.put(scrapy)
                 elif scrapy.type == 'topic':
@@ -197,7 +200,7 @@ class ZCoolScraper():
     def _generate_all_pages(self):
         for i in range(1, self.max_pages + 1):
             url = urljoin(self.base_url, PAGE_SUFFIX.format(page=i))
-            scrapy = Scrapy(type='page', author=self.username, title=i, url=url)
+            scrapy = Scrapy(type='page', author=self.username, index=i, url=url)
             if scrapy not in self.stat["pages_pass"]:
                 self.pages.put(scrapy)
 
@@ -212,6 +215,7 @@ class ZCoolScraper():
                 break
             except Exception:
                 continue
+
         for idx, future in enumerate(as_completed(page_future)):
             scrapy = page_future.get(future)
             try:
@@ -291,29 +295,34 @@ class ZCoolScraper():
         resp = session_request(scrapy.url)
 
         cards = BeautifulSoup(resp.text, 'html.parser').find_all(name='a', class_='card-img-hover')
+        # TODO(Allen 20200720) 解析出 objid
         for card in (cards if self.max_topics == 'all' else cards[:self.max_topics + 1]):
             title = card.get('title')
             if self.spec_topics and (title not in self.spec_topics):
                 continue
 
-            new_scrapy = Scrapy('topic', scrapy.author, title, card.get('href'))
+            # TODO(Allen 20200720) 补充 objid
+            new_scrapy = Scrapy(type='topic', author=scrapy.author, title=title, objid=None, url=card.get('href'))
             if new_scrapy not in self.stat["topics_pass"]:
                 self.topics.put(new_scrapy)
                 self.stat["ntopics"] += 1
         return scrapy
 
     def parse_images(self, scrapy):
-        resp = session_request(scrapy.url)
+        resp = session_request(urljoin(HOST_PAGE, WORK_SUFFIX.format(objid=scrapy.objid)))
 
-        soup = BeautifulSoup(markup=resp.text, features='html.parser')
-        for div in soup.find_all(name='div', class_='reveal-work-wrap text-center'):
-            url = div.find(name='img').get('src')
-            if not self.thumbnail:
-                url = url.split('@')[0]  # 原图地址
-            new_scrapy = Scrapy('image', scrapy.author, scrapy.title, url)
+        data = resp.json().get('data', {})
+        author = data.get('product', {}).get('creatorObj', {}).get('username')
+        title = data.get('product', {}).get('title')
+        objid = data.get('product', {}).get('id')
+
+        for img in data.get('allImageList', []):
+            new_scrapy = Scrapy(type='image', author=author, title=title, objid=objid,
+                                index=img.get('orderNo') or 0, url=img.get('url'))
             if new_scrapy not in self.stat["images_pass"]:
                 self.images.put(new_scrapy)
                 self.stat["nimages"] += 1
+
         return scrapy
 
     def download_image(self, scrapy):
@@ -323,29 +332,30 @@ class ZCoolScraper():
             name = uuid4().hex + '.jpg'
 
         path = os.path.join(self.directory, convert_to_safe_filename(scrapy.title))
-        filename = os.path.join(path, name)
+        filename = os.path.join(path, f'{scrapy.index:2d}-{name}')
         if (not self.override) and os.path.isfile(filename):
             return scrapy
 
         resp = session_request(scrapy.url)
 
         mkdirs_if_not_exist(path)
-        with open(filename, 'wb') as fi:
-            fi.write(resp.content)
+        with open(filename, 'wb') as f:
+            for chunk in resp.iter_content(8096):
+                f.write(chunk)
         return scrapy
 
     def save_records(self):
         filename = f'{convert_to_safe_filename(self.start_time.isoformat()[:-7])}.json'
         abspath = os.path.abspath(os.path.join(self.directory, filename))
-        with open(abspath, 'w', encoding='utf-8') as ff:
+        with open(abspath, 'w', encoding='utf-8') as f:
             records = {
                 'time': self.start_time.isoformat(),
-                'success': [scrapy._asdict() for scrapy in
+                'success': [scrapy.dict() for scrapy in
                             (self.stat["pages_pass"] | self.stat["topics_pass"] | self.stat["images_pass"])],
-                'fail': [scrapy._asdict() for scrapy in
+                'fail': [scrapy.dict() for scrapy in
                          (self.stat["pages_fail"] | self.stat["topics_fail"] | self.stat["images_fail"])]
             }
-            ff.write(json.dumps(records, ensure_ascii=False, indent=4))
+            f.write(json.dumps(records, ensure_ascii=False, indent=2))
         return abspath
 
     def run_scraper(self):
@@ -413,22 +423,24 @@ class ZCoolScraper():
               help='Maximum thread workers.')
 @click.option('--proxies', help='Use proxies to access websites.\nExample:\n\'{"http": "user:passwd'
                                 '@www.example.com:port",\n"https": "user:passwd@www.example.com:port"}\'')
-def zcool_command(ids, names, dest, max_pages, topics, max_topics, max_workers,
-                  retries, redownload, override, proxies, thumbnail):
+def zcool_command(ids, names, dest, max_pages, topics, max_topics,
+                  max_workers, retries, redownload, override, thumbnail):
     """Use multi-threaded to download images from https://www.zcool.com.cn by usernames or IDs."""
     if redownload:
-        scraper = ZCoolScraper(user_id='', username='', destination=dest, max_pages=max_pages, spec_topics=topics,
-                               max_topics=max_topics, max_workers=max_workers, retries=retries, redownload=redownload,
-                               override=override, proxies=proxies, thumbnail=thumbnail)
+        scraper = ZCoolScraper(user_id='', username='', destination=dest, max_pages=max_pages,
+                               spec_topics=topics, max_topics=max_topics, max_workers=max_workers,
+                               retries=retries, redownload=redownload, override=override,
+                               thumbnail=thumbnail)
         scraper.run_scraper()
 
     elif ids or names:
         topics = topics.split(',') if topics else []
         users = parse_users(ids, names)
         for user in users:
-            scraper = ZCoolScraper(user_id=user.id, username=user.name, destination=dest, max_pages=max_pages,
-                                   spec_topics=topics, max_topics=max_topics, max_workers=max_workers, retries=retries,
-                                   redownload=redownload, override=override, proxies=proxies)
+            scraper = ZCoolScraper(user_id=user.id, username=user.name, destination=dest,
+                                   max_pages=max_pages, spec_topics=topics, max_topics=max_topics,
+                                   max_workers=max_workers, retries=retries, redownload=redownload,
+                                   override=override)
             scraper.run_scraper()
 
     else:
