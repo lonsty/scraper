@@ -4,7 +4,7 @@
 from .zcool import ZCoolScraper, zcool_command
 
 __author__ = 'lonsty'
-__version__ = '0.1.1'
+__version__ = '0.1.3'
 
 __all__ = [
     'ZCoolScraper',

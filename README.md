@@ -7,11 +7,8 @@
 - [x] 极速下载：多线程异步下载，可以根据需要设置线程数
 - [x] 异常重试：只要重试次数足够多，就没有下载不下来的图片 \(^o^)/！
 - [x] 增量下载：设计师/用户有新的上传，再跑一遍程序就行了 O(∩_∩)O 嗯！
-- [x] 支持代理：可以配置使用代理
 - [x] 自选主题：可以选择下载用户的特定主题，而不是该用户下的所有内容
-- [x] 多个用户：支持一次性输入多个用户名或 ID
-- [x] 超清原图（NEW）：从V0.1.2开始，默认下载超清原图（约几MB），使用参数`--thumbnail`下载缩略图（宽最大1280px，约500KB）
-- [x] 新增格式（NEW）：支持下载JPG、PNG、GIF、BMP格式的图片
+- [x] 超清原图（NEW）：从 V0.1.2 开始，默认下载超清原图（约几 MB），使用参数`--thumbnail`下载缩略图（宽最大 1280px，约 500KB）
 
 ### 环境：
 
@@ -88,7 +85,7 @@ Options:
   -d, --destination TEXT  Directory to save images.
   -R, --retries INTEGER   Repeat download for failed images.  [default: 3]
   -r, --redownload TEXT   Redownload images from failed records.
-  -o, --override          Override existing files.  [default: False]
+  -o, --overwrite          Override existing files.  [default: False]
   --thumbnail             Download thumbnails with a maximum width of 1280px.
                           [default: False]
   --max-pages INTEGER     Maximum pages to download.
@@ -104,6 +101,12 @@ Options:
 ```
 
 # 更新历史
+
+- ## Version 0.1.3 (2020.07.21）
+
+    - 修复了在动态加载页面中无法获取并下载所有图片的问题
+    - 保存的图片文件名中加入了序号，方便保持原始顺序
+    - 添加了注释，并对一些细节做了调整
 
 - ## 2020.03.25
 

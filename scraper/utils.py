@@ -7,17 +7,6 @@ import time
 from collections import namedtuple
 from functools import wraps
 
-from pydantic import BaseModel
-
-
-class Spider(BaseModel):
-    type: str = None
-    author: str = None
-    title: str = None
-    objid: int = None
-    index: int = None
-    url: str = None
-
 
 def retry(exceptions, tries=3, delay=1, backoff=2, logger=None):
     """
@@ -56,6 +45,11 @@ def retry(exceptions, tries=3, delay=1, backoff=2, logger=None):
 
 
 def mkdirs_if_not_exist(dir):
+    """
+    文件夹不存在时则创建。
+    :param str dir: 文件夹路径，支持多级
+    :return:
+    """
     if not os.path.isdir(dir):
         try:
             os.makedirs(dir)
@@ -64,10 +58,21 @@ def mkdirs_if_not_exist(dir):
 
 
 def convert_to_safe_filename(filename):
+    """
+    去掉文件名中的非法字符。
+    :param str filename: 文件名
+    :return str: 合法文件名
+    """
     return "".join([c for c in filename if c not in r'\/:*?"<>|']).strip()
 
 
 def parse_users(ids, names):
+    """
+    解析用户名或 ID。
+    :param str ids: 半角逗号分割的用户 ID
+    :param str names: 半角逗号分割的用户名
+    :return list: 包含 User 数据的列表
+    """
     User = namedtuple('User', 'id name')
     users = []
 
