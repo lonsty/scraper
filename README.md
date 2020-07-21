@@ -39,6 +39,8 @@ $ python crawler.py -u <username> -d <path>
 
 运行截图
 
+![screenshot_02.png](screenshots/04.png)
+
 ![screenshot_01.png](screenshots/03.png)
 
 爬取结果
