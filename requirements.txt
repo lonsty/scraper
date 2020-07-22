@@ -1,4 +1,4 @@
-beautifulsoup4
-Click
-requests
-termcolor
+Click==7.0
+beautifulsoup4==4.9.1
+requests==2.24.0
+termcolor==1.1.0

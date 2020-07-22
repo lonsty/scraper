@@ -9,16 +9,13 @@ from functools import wraps
 
 
 def retry(exceptions, tries=3, delay=1, backoff=2, logger=None):
-    """
-    Retry calling the decorated function using an exponential backoff.
-    Args:
-        exceptions: The exception to check. may be a tuple of
-            exceptions to check.
-        tries: Number of times to try (not retry) before giving up.
-        delay: Initial delay between retries in seconds.
-        backoff: Backoff multiplier (e.g. value of 2 will double the delay
-            each retry).
-        logger: Logger to use. If None, print.
+    """Retry calling the decorated function using an exponential backoff.
+
+    :param exceptions: The exception to check. may be a tuple of exceptions to check.
+    :param tries: Number of times to try (not retry) before giving up.
+    :param delay: Initial delay between retries in seconds.
+    :param backoff: Backoff multiplier (e.g. value of 2 will double the delay each retry).
+    :param logger: Logger to use. If None, print.
     """
 
     def deco_retry(f):
@@ -45,10 +42,9 @@ def retry(exceptions, tries=3, delay=1, backoff=2, logger=None):
 
 
 def mkdirs_if_not_exist(dir):
-    """
-    文件夹不存在时则创建。
+    """文件夹不存在时则创建。
+
     :param str dir: 文件夹路径，支持多级
-    :return:
     """
     if not os.path.isdir(dir):
         try:
@@ -58,8 +54,8 @@ def mkdirs_if_not_exist(dir):
 
 
 def convert_to_safe_filename(filename):
-    """
-    去掉文件名中的非法字符。
+    """去掉文件名中的非法字符。
+
     :param str filename: 文件名
     :return str: 合法文件名
     """
@@ -67,8 +63,8 @@ def convert_to_safe_filename(filename):
 
 
 def parse_users(ids, names):
-    """
-    解析用户名或 ID。
+    """解析用户名或 ID。
+
     :param str ids: 半角逗号分隔的用户 ID
     :param str names: 半角逗号分隔的用户名
     :return list: 包含 User 数据的列表

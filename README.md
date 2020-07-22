@@ -1,6 +1,16 @@
 # scraper
 
-极速爬取下载站酷（[https://www.zcool.com.cn/](https://www.zcool.com.cn/)）`设计师/用户` 上传的全部  `图片/照片/插画`。
+极速爬取下载站酷（[https://www.zcool.com.cn/](https://www.zcool.com.cn/)）`设计师/用户` 上传的全部 `图片/照片/插画`。
+
+**:tada: :tada: :tada: 此下载工具已发布到 PyPI**
+
+- 项目地址：[https://github.com/lonsty/zcooldl](https://github.com/lonsty/zcooldl)
+- 在线文档：[https://zcooldl.readthedocs.io/](https://zcooldl.readthedocs.io/)
+- 快速安装：`pip install -U zcooldl`
+- 使用方式：`zcooldl -u <username>`
+
+PS: `scraper` 本来是规划用来存放各式各样的爬虫程序的。站酷仅仅是当初构想中的一个，因为太懒而没有新增其他爬虫。
+想不到 [zcool.py](scraper/zcool.py) 竟然从原来的几十行代码，逐步增加到现在的 500+ 行 :joy: :joy: :joy:。
 
 ### 特点：
 
@@ -8,7 +18,7 @@
 - [x] 异常重试：只要重试次数足够多，就没有下载不下来的图片 \(^o^)/！
 - [x] 增量下载：设计师/用户有新的上传，再跑一遍程序就行了 O(∩_∩)O 嗯！
 - [x] 自选主题：可以选择下载用户的特定主题，而不是该用户下的所有内容
-- [x] 超清原图（NEW）：从 V0.1.2 开始，默认下载超清原图（约几 MB），使用参数 `--thumbnail` 下载缩略图（宽最大 1280px，约 500KB）
+- [x] 超清原图：默认下载超清原图（约几 MB），使用参数 `--thumbnail` 下载缩略图（宽最大 1280px，约 500KB）
 
 ### 环境：
 
@@ -39,7 +49,7 @@ $ python crawler.py -u <username> -d <path>
 
 运行截图
 
-![screenshot_02.png](screenshots/04.png)
+![screenshot_04.png](screenshots/04.png)
 
 ![screenshot_01.png](screenshots/03.png)
 
@@ -76,15 +86,14 @@ $ python crawler.py --help
 
 Usage: crawler.py [OPTIONS]
 
-  Use multi-threaded to download images from https://www.zcool.com.cn by
-  usernames or IDs.
+  ZCool picture crawler. Download ZCool (https://www.zcool.com.cn/)
+  Designer's or User's pictures, photos and illustrations.
 
 Options:
   -u, --usernames TEXT    One or more user names, separated by commas.
   -i, --ids TEXT          One or more user ids, separated by commas.
   -t, --topics TEXT       Specific topics of this user to download, separated
                           by commas.
-
   -d, --destination TEXT  Destination to save images.
   -R, --retries INTEGER   Repeat download for failed images.  [default: 3]
   -r, --redownload TEXT   Redownload images from failed records.
@@ -98,7 +107,7 @@ Options:
 
 # 更新历史
 
-- ## Version 0.1.3 (2020.07.22）
+- ## Version 0.1.3 (2020.07.22)
 
     - 修复了在动态加载页面中无法获取并下载所有图片的问题
     - 保存的图片文件名中加入了序号，以保持原始顺序
@@ -113,8 +122,8 @@ Options:
 
     新功能：
     
-    - 新增下载超清原图（默认选项，约几MB），使用参数`--thumbnail`下载缩略图（宽最大1280px，约500KB）
-    - 新增支持下载JPG、PNG、GIF、BMP格式的图片
+    - 新增下载超清原图（默认选项，约几 MB），使用参数 `--thumbnail` 下载缩略图（宽最大 1280px，约 500KB）
+    - 新增支持下载 JPG、PNG、GIF、BMP 格式的图片
 
 - ## Version 0.1.1 (2019.12.09)
 
@@ -134,7 +143,7 @@ Options:
     - 极速下载：多线程异步下载，可以根据需要设置线程数
     - 异常重试：只要重试次数足够多，就没有下载不下来的图片 \(^o^)/
     - 增量下载：设计师/用户有新的上传，再跑一遍程序就行了 O(∩_∩)O 嗯！
-    - 支持代理：可以配置使用代理
+    - 支持代理：可以配置使用代理（0.1.3 版本后改为自动读取系统代理）
 
 # LICENSE
 

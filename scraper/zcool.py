@@ -40,8 +40,8 @@ thread_local = threading.local()
 
 
 def get_session():
-    """
-    使线程获取同一个Session，可减少 TCP 连接数，加速请求。
+    """使线程获取同一个Session，可减少 TCP 连接数，加速请求。
+
     :return requests.Session: session
     """
     if not hasattr(thread_local, "session"):
@@ -50,9 +50,9 @@ def get_session():
 
 
 @retry(Exception, tries=RETRIES)
-def session_request(url: str, method: str='GET') -> requests.Response:
-    """
-    使用 session 请求数据。使用了装饰器 retry，在网络异常导致错误时会重试。
+def session_request(url: str, method: str = 'GET') -> requests.Response:
+    """使用 session 请求数据。使用了装饰器 retry，在网络异常导致错误时会重试。
+
     :param str url: 目标请求 URL
     :param str method: 请求方式
     :return requests.Response: 响应数据
@@ -67,8 +67,8 @@ class ZCoolScraper():
     def __init__(self, user_id=None, username=None, destination=None, max_pages=None,
                  spec_topics=None, max_topics=None, max_workers=None, retries=None,
                  redownload=None, overwrite=False, thumbnail=False):
-        """
-        初始化下载参数。
+        """初始化下载参数。
+
         :param int user_id: 用户 ID
         :param str username: 用户名
         :param str destination: 图片保存到本地的路径，默认当前路径
@@ -110,8 +110,8 @@ class ZCoolScraper():
 
         if redownload:
             # 从记录文件中的失败项开始下载
-            self.username = self._reload_records(redownload)
-            self.user_id = self._search_id_by_username(self.username)
+            self.username = self.reload_records(redownload)
+            self.user_id = self.search_id_by_username(self.username)
             self.max_pages = self.pages.qsize()
             self.max_topics = self.topics.qsize()
             self.directory = op.abspath(op.join(destination or '',
@@ -126,10 +126,10 @@ class ZCoolScraper():
                   f'{"Topics to scrapy".rjust(17)}: {self.max_topics:3d}\n'
                   f'{"Images to scrapy".rjust(17)}: {self.images.qsize():4d}\n'
                   f'Storage directory: {colored(self.directory, attrs=["underline"])}', end='\n\n')
-            self._fetch_all(redownload=True)
+            self.fetch_all(redownload=True)
             return
 
-        self.user_id = user_id or self._search_id_by_username(username)
+        self.user_id = user_id or self.search_id_by_username(username)
         self.base_url = urljoin(HOST_PAGE, USER_SUFFIX.format(id=self.user_id))
 
         try:
@@ -173,11 +173,11 @@ class ZCoolScraper():
               f'Storage directory: {colored(self.directory, attrs=["underline"])}', end='\n\n')
 
         self.END_PARSING_TOPICS = False
-        self._fetch_all()
+        self.fetch_all()
 
-    def _search_id_by_username(self, username):
-        """
-        通过用户昵称查找用户 ID。
+    def search_id_by_username(self, username):
+        """通过用户昵称查找用户 ID。
+
         :param str username: 用户昵称
         :return int: 用户 ID
         """
@@ -202,9 +202,9 @@ class ZCoolScraper():
 
         return author_1st.get('data-id')
 
-    def _reload_records(self, file):
-        """
-        从本地下载记录里读取下载失败的内容。
+    def reload_records(self, file):
+        """从本地下载记录里读取下载失败的内容。
+
         :param str file: 下载记录文件的路径。
         :return str: 用户名
         """
@@ -219,7 +219,7 @@ class ZCoolScraper():
                     self.images.put(scrapy)
             return scrapy.author
 
-    def _generate_all_pages(self):
+    def generate_pages(self):
         """根据最大下载页数，生成需要爬取主页的任务。"""
         for i in range(1, self.max_pages + 1):
             url = urljoin(self.base_url, PAGE_SUFFIX.format(page=i))
@@ -229,8 +229,8 @@ class ZCoolScraper():
                 self.pages.put(scrapy)
 
     def parse_topics(self, scrapy):
-        """
-        爬取主页，解析所有 topic，并将爬取主题的任务添加到任务队列。
+        """爬取主页，解析所有 topic，并将爬取主题的任务添加到任务队列。
+
         :param scrapy: 记录任务信息的数据体
         :return Scrapy: 记录任务信息的数据体
         """
@@ -248,7 +248,7 @@ class ZCoolScraper():
                 self.stat["ntopics"] += 1
         return scrapy
 
-    def _fetch_all_topics(self):
+    def fetch_topics(self):
         """从任务队列中获取要爬取的主页，使用多线程处理得到需要爬取的主题。"""
         page_futures = {}
         while True:
@@ -265,14 +265,14 @@ class ZCoolScraper():
             try:
                 future.result()
                 self.stat["pages_pass"].add(scrapy)
-            except Exception as exc:
+            except Exception:
                 self.stat["pages_fail"].add(scrapy)
                 cprint(f'GET page: {scrapy.title} ({scrapy.url}) failed.', 'red')
         self.END_PARSING_TOPICS = True
 
     def parse_images(self, scrapy):
-        """
-        爬取 topic，获得 objid 后直接调用 API，从返回数据里获得图片地址等信息，
+        """爬取 topic，获得 objid 后直接调用 API，从返回数据里获得图片地址等信息，
+
         并将下载图片的任务添加到任务队列。
         :param scrapy: 记录任务信息的数据体
         :return Scrapy: 记录任务信息的数据体
@@ -295,7 +295,7 @@ class ZCoolScraper():
 
         return scrapy
 
-    def _fetch_all_images(self):
+    def fetch_images(self):
         """从任务队列中获取要爬取的主题，使用多线程处理得到需要下载的图片。"""
         image_futures = {}
         while True:
@@ -317,14 +317,14 @@ class ZCoolScraper():
                 self.stat["topics_fail"].add(scrapy)
                 cprint(f'GET topic: {scrapy.title} ({scrapy.url}) failed.', 'red')
 
-    def _fetch_all(self, redownload: bool=False):
+    def fetch_all(self, redownload: bool = False):
         """同时爬取主页、主题，并更新状态。"""
         if not redownload:
-            self._generate_all_pages()
-        fetch_futures = [self.pool.submit(self._fetch_all_topics),
-                         self.pool.submit(self._fetch_all_images)]
+            self.generate_pages()
+        fetch_futures = [self.pool.submit(self.fetch_topics),
+                         self.pool.submit(self.fetch_images)]
         end_show_fetch = False
-        t = threading.Thread(target=self._show_fetch_status, kwargs={'end': lambda: end_show_fetch})
+        t = threading.Thread(target=self.show_fetch_status, kwargs={'end': lambda: end_show_fetch})
         t.start()
         try:
             wait(fetch_futures)
@@ -334,12 +334,11 @@ class ZCoolScraper():
             end_show_fetch = True
             t.join()
 
-    def _show_fetch_status(self, interval=0.5, end=None):
-        """
-        用于后台线程，实现边爬取边显示状态。
+    def show_fetch_status(self, interval=0.5, end=None):
+        """用于后台线程，实现边爬取边显示状态。
+
         :param int interval: 状态更新间隔，秒
         :param function end: 用于控制退出线程
-        :return:
         """
         while True:
             status = 'Fetched Pages: {pages}\tTopics: {topics}\tImages: {images}'.format(
@@ -352,12 +351,11 @@ class ZCoolScraper():
                 break
             time.sleep(interval)
 
-    def _show_download_status(self, interval=0.5, end=None):
-        """
-        用于后台线程，实现边下载边显示状态。
+    def show_download_status(self, interval=0.5, end=None):
+        """用于后台线程，实现边下载边显示状态。
+
         :param int interval: 状态更新间隔，秒
         :param function end: 用于控制退出线程
-        :return:
         """
         while True:
             completed = len(self.stat["images_pass"]) + len(self.stat["images_fail"])
@@ -375,8 +373,8 @@ class ZCoolScraper():
             time.sleep(interval)
 
     def download_image(self, scrapy):
-        """
-         下载图片保存到本地。
+        """下载图片保存到本地。
+
          :param scrapy: 记录任务信息的数据体
          :return Scrapy: 记录任务信息的数据体
          """
@@ -403,8 +401,8 @@ class ZCoolScraper():
         return scrapy
 
     def save_records(self):
-        """
-        将成功及失败的下载记录保存到本地文件。
+        """将成功及失败的下载记录保存到本地文件。
+
         :return str: 记录文件的路径
         """
         filename = f'{convert_to_safe_filename(self.start_time.isoformat()[:-7])}.json'
@@ -425,7 +423,7 @@ class ZCoolScraper():
     def run_scraper(self):
         """使用多线程下载所有图片，完成后保存记录并退出程序。"""
         end_show_download = False
-        t = threading.Thread(target=self._show_download_status, kwargs={'end': lambda: end_show_download})
+        t = threading.Thread(target=self.show_download_status, kwargs={'end': lambda: end_show_download})
         t.start()
 
         image_futuress = {}
@@ -473,7 +471,7 @@ class ZCoolScraper():
 @click.option('-u', '--usernames', 'names', help='One or more user names, separated by commas.')
 @click.option('-i', '--ids', 'ids', help='One or more user ids, separated by commas.')
 @click.option('-t', '--topics', 'topics', help='Specific topics of this user to download, separated by commas.')
-@click.option('-d', '--destination', 'dest', help='Destination to save images.')
+@click.option('-d', '--destination', 'destination', help='Destination to save images.')
 @click.option('-R', '--retries', 'retries', default=RETRIES, show_default=True, type=int,
               help='Repeat download for failed images.')
 @click.option('-r', '--redownload', 'redownload', help='Redownload images from failed records.')
@@ -484,11 +482,13 @@ class ZCoolScraper():
 @click.option('--max-topics', 'max_topics', type=int, help='Maximum topics per page to download.')
 @click.option('--max-workers', 'max_workers', default=MAX_WORKERS, show_default=True, type=int,
               help='Maximum thread workers.')
-def zcool_command(ids, names, dest, max_pages, topics, max_topics,
+def zcool_command(ids, names, destination, max_pages, topics, max_topics,
                   max_workers, retries, redownload, overwrite, thumbnail):
-    """Use multi-threaded to download images from https://www.zcool.com.cn by usernames or IDs."""
+    """ZCool picture crawler. Download ZCool (https://www.zcool.com.cn/)
+    Designer's or User's pictures, photos and illustrations.
+    """
     if redownload:
-        scraper = ZCoolScraper(destination=dest, max_pages=max_pages, spec_topics=topics,
+        scraper = ZCoolScraper(destination=destination, max_pages=max_pages, spec_topics=topics,
                                max_topics=max_topics, max_workers=max_workers, retries=retries,
                                redownload=redownload, overwrite=overwrite, thumbnail=thumbnail)
         scraper.run_scraper()
@@ -497,7 +497,7 @@ def zcool_command(ids, names, dest, max_pages, topics, max_topics,
         topics = topics.split(',') if topics else []
         users = parse_users(ids, names)
         for user in users:
-            scraper = ZCoolScraper(user_id=user.id, username=user.name, destination=dest,
+            scraper = ZCoolScraper(user_id=user.id, username=user.name, destination=destination,
                                    max_pages=max_pages, spec_topics=topics, max_topics=max_topics,
                                    max_workers=max_workers, retries=retries, redownload=redownload,
                                    overwrite=overwrite)
