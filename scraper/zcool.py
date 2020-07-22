@@ -2,13 +2,13 @@
 # @Author: lonsty
 # @Date:   2019-09-07 18:34:18
 import json
-import os
+import os.path as op
 import re
 import sys
 import threading
 import time
 from collections import namedtuple
-from concurrent.futures import ThreadPoolExecutor, wait, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from datetime import datetime
 from queue import Empty, Queue
 from urllib.parse import urljoin, urlparse
@@ -19,15 +19,16 @@ import requests
 from bs4 import BeautifulSoup
 from termcolor import colored, cprint
 
-from scraper.utils import convert_to_safe_filename, mkdirs_if_not_exist, parse_users, retry
+from scraper.utils import (convert_to_safe_filename, mkdirs_if_not_exist,
+                           parse_users, retry)
 
-Scrapy = namedtuple('Scrapy', 'type author title objid index url')
+Scrapy = namedtuple('Scrapy', 'type author title objid index url')  # 用于记录下载任务
 HEADERS = {'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
                          '(KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36'}
 HOST_PAGE = 'https://www.zcool.com.cn'
-PAGE_SUFFIX = '?myCate=0&sort=1&p={page}'
-USER_SUFFIX = '/u/{id}'
 SEARCH_DESIGNER_SUFFIX = '/search/designer?&word={word}'
+USER_SUFFIX = '/u/{id}'
+PAGE_SUFFIX = '?myCate=0&sort=1&p={page}'
 WORK_SUFFIX = '/work/content/show?p=1&objectId={objid}'
 USER_API = 'https://www.zcool.com.cn/member/card/{id}'
 TIMEOUT = 30
@@ -48,19 +49,17 @@ def get_session():
     return thread_local.session
 
 
-@retry(Exception)
-def session_request(url: str, method: str = 'GET') -> requests.Response:
+@retry(Exception, tries=RETRIES)
+def session_request(url: str, method: str='GET') -> requests.Response:
     """
     使用 session 请求数据。使用了装饰器 retry，在网络异常导致错误时会重试。
     :param str url: 目标请求 URL
     :param str method: 请求方式
     :return requests.Response: 响应数据
     """
-    session = get_session()
-
-    with session.request(method, url, headers=HEADERS, timeout=TIMEOUT) as resp:
-        resp.raise_for_status()
-        return resp
+    resp = get_session().request(method, url, headers=HEADERS, timeout=TIMEOUT)
+    resp.raise_for_status()
+    return resp
 
 
 class ZCoolScraper():
@@ -94,41 +93,40 @@ class ZCoolScraper():
         self.pages = Queue()
         self.topics = Queue()
         self.images = Queue()
-        self.stat = {
-            'npages': 0,
-            'ntopics': 0,
-            'nimages': 0,
-            'pages_pass': set(),
-            'pages_fail': set(),
-            'topics_pass': set(),
-            'topics_fail': set(),
-            'images_pass': set(),
-            'images_fail': set()
-        }
+        self.stat = {'npages': 0,
+                     'ntopics': 0,
+                     'nimages': 0,
+                     'pages_pass': set(),
+                     'pages_fail': set(),
+                     'topics_pass': set(),
+                     'topics_fail': set(),
+                     'images_pass': set(),
+                     'images_fail': set()}
 
         if retries:
-            # 覆盖全局变量 RETRIES
+            # 重置全局变量 RETRIES
             global RETRIES
             RETRIES = retries
 
         if redownload:
+            # 从记录文件中的失败项开始下载
             self.username = self._reload_records(redownload)
             self.user_id = self._search_id_by_username(self.username)
             self.max_pages = self.pages.qsize()
             self.max_topics = self.topics.qsize()
-            self.directory = os.path.abspath(os.path.join(destination or '', urlparse(HOST_PAGE).netloc,
-                                                          convert_to_safe_filename(self.username)))
-            self.stat.update({
-                'npages': self.max_pages,
-                'ntopics': self.max_topics,
-                'nimages': self.images.qsize(),
-            })
+            self.directory = op.abspath(op.join(destination or '',
+                                                urlparse(HOST_PAGE).netloc,
+                                                convert_to_safe_filename(self.username)))
+            self.stat.update({'npages': self.max_pages,
+                              'ntopics': self.max_topics,
+                              'nimages': self.images.qsize()})
             print(f'{"Username".rjust(17)}: {colored(self.username, "cyan")}\n'
                   f'{"User ID".rjust(17)}: {self.user_id}\n'
                   f'{"Pages to scrapy".rjust(17)}: {self.max_pages:2d}\n'
                   f'{"Topics to scrapy".rjust(17)}: {self.max_topics:3d}\n'
                   f'{"Images to scrapy".rjust(17)}: {self.images.qsize():4d}\n'
                   f'Storage directory: {colored(self.directory, attrs=["underline"])}', end='\n\n')
+            self._fetch_all(redownload=True)
             return
 
         self.user_id = user_id or self._search_id_by_username(username)
@@ -140,10 +138,10 @@ class ZCoolScraper():
             cprint('Cannot connect to proxy.', 'red')
             sys.exit(1)
         except Exception as e:
-            cprint(f'Failed to connect to {self.base_url}', 'red')
+            cprint(f'Failed to connect to {self.base_url}, {e}', 'red')
             sys.exit(1)
-        soup = BeautifulSoup(markup=response.text, features='html.parser')
 
+        soup = BeautifulSoup(markup=response.text, features='html.parser')
         try:
             author = soup.find(name='div', id='body').get('data-name')
             if username and username != author:
@@ -152,9 +150,9 @@ class ZCoolScraper():
             self.username = author
         except Exception:
             self.username = username or 'anonymous'
-        self.directory = os.path.abspath(os.path.join(destination or '', urlparse(HOST_PAGE).netloc,
-                                                      convert_to_safe_filename(self.username)))
-
+        self.directory = op.abspath(op.join(destination or '',
+                                            urlparse(HOST_PAGE).netloc,
+                                            convert_to_safe_filename(self.username)))
         try:
             max_page = int(soup.find(id='laypage_0').find_all(name='a')[-2].text)
         except Exception:
@@ -194,12 +192,12 @@ class ZCoolScraper():
             cprint('Cannot connect to proxy.', 'red')
             sys.exit(1)
         except Exception as e:
-            cprint(f'Failed to connect to {search_url}', 'red')
+            cprint(f'Failed to connect to {search_url}, {e}', 'red')
             sys.exit(1)
 
         author_1st = BeautifulSoup(response.text, 'html.parser').find(name='div', class_='author-info')
         if (not author_1st) or (author_1st.get('data-name') != username):
-            cprint(f'Username does not exist: {username}', 'yellow')
+            cprint(f'Username「{username}」does not exist!', 'yellow')
             sys.exit(1)
 
         return author_1st.get('data-id')
@@ -225,7 +223,6 @@ class ZCoolScraper():
         """根据最大下载页数，生成需要爬取主页的任务。"""
         for i in range(1, self.max_pages + 1):
             url = urljoin(self.base_url, PAGE_SUFFIX.format(page=i))
-            print(url)
             scrapy = Scrapy(type='page', author=self.username, title=i,
                             objid=None, index=i - 1, url=url)
             if scrapy not in self.stat["pages_pass"]:
@@ -263,14 +260,14 @@ class ZCoolScraper():
             except Exception:
                 continue
 
-        for idx, future in enumerate(as_completed(page_futures)):
+        for future in as_completed(page_futures):
             scrapy = page_futures.get(future)
             try:
                 future.result()
                 self.stat["pages_pass"].add(scrapy)
             except Exception as exc:
                 self.stat["pages_fail"].add(scrapy)
-                cprint(f'GET page: {scrapy.url} failed.', 'red')
+                cprint(f'GET page: {scrapy.title} ({scrapy.url}) failed.', 'red')
         self.END_PARSING_TOPICS = True
 
     def parse_images(self, scrapy):
@@ -311,19 +308,20 @@ class ZCoolScraper():
             except Exception:
                 continue
 
-        for idx, future in enumerate(as_completed(image_futures)):
+        for future in as_completed(image_futures):
             scrapy = image_futures.get(future)
             try:
                 future.result()
                 self.stat["topics_pass"].add(scrapy)
             except Exception:
                 self.stat["topics_fail"].add(scrapy)
-                cprint(f'GET topic: {scrapy.url} failed.', 'red')
+                cprint(f'GET topic: {scrapy.title} ({scrapy.url}) failed.', 'red')
 
-    def _fetch_all(self):
+    def _fetch_all(self, redownload: bool=False):
         """同时爬取主页、主题，并更新状态。"""
-        fetch_futures = [self.pool.submit(self._generate_all_pages),
-                         self.pool.submit(self._fetch_all_topics),
+        if not redownload:
+            self._generate_all_pages()
+        fetch_futures = [self.pool.submit(self._fetch_all_topics),
                          self.pool.submit(self._fetch_all_images)]
         end_show_fetch = False
         t = threading.Thread(target=self._show_fetch_status, kwargs={'end': lambda: end_show_fetch})
@@ -387,21 +385,20 @@ class ZCoolScraper():
         except IndexError:
             name = uuid4().hex + '.jpg'
 
-        path = os.path.join(self.directory, convert_to_safe_filename(scrapy.title))
-        filename = os.path.join(path, f'[{scrapy.index + 1 or 0:02d}]{name}')
-        if (not self.overwrite) and os.path.isfile(filename):
+        path = op.join(self.directory, convert_to_safe_filename(scrapy.title))
+        filename = op.join(path, f'[{scrapy.index + 1 or 0:02d}]{name}')
+        if (not self.overwrite) and op.isfile(filename):
             return scrapy
 
         url = scrapy.url
         if self.thumbnail:
             if url.lower().endswith(('jpg', 'png', 'bmp')):
                 url = f'{scrapy.url}@1280w_1l_2o_100sh.{url[-3:]}'
-
         resp = session_request(url)
 
         mkdirs_if_not_exist(path)
         with open(filename, 'wb') as f:
-            for chunk in resp.iter_content(8096):
+            for chunk in resp.iter_content(8192):
                 f.write(chunk)
         return scrapy
 
@@ -411,15 +408,17 @@ class ZCoolScraper():
         :return str: 记录文件的路径
         """
         filename = f'{convert_to_safe_filename(self.start_time.isoformat()[:-7])}.json'
-        abspath = os.path.abspath(os.path.join(self.directory, filename))
+        abspath = op.abspath(op.join(self.directory, filename))
         with open(abspath, 'w', encoding='utf-8') as f:
-            records = {
-                'time': self.start_time.isoformat(),
-                'success': [scrapy._asdict() for scrapy in
-                            (self.stat["pages_pass"] | self.stat["topics_pass"] | self.stat["images_pass"])],
-                'fail': [scrapy._asdict() for scrapy in
-                         (self.stat["pages_fail"] | self.stat["topics_fail"] | self.stat["images_fail"])]
-            }
+            success = (self.stat["pages_pass"] | self.stat["topics_pass"] | self.stat["images_pass"])
+            fail = (self.stat["pages_fail"] | self.stat["topics_fail"] | self.stat["images_fail"])
+            type_order = {'page': 1, 'topic': 2, 'image': 3}
+            s_ordered = sorted(success, key=lambda x: (type_order[x.type], x.objid, x.index, x.title, x.url))
+            f_ordered = sorted(fail, key=lambda x: (type_order[x.type], x.objid, x.index, x.title, x.url))
+
+            records = {'time': self.start_time.isoformat(),
+                       'success': [scrapy._asdict() for scrapy in s_ordered],
+                       'fail': [scrapy._asdict() for scrapy in f_ordered]}
             f.write(json.dumps(records, ensure_ascii=False, indent=2))
         return abspath
 
@@ -435,8 +434,6 @@ class ZCoolScraper():
                 scrapy = self.images.get_nowait()
                 if scrapy not in self.stat["images_pass"]:
                     image_futuress[self.pool.submit(self.download_image, scrapy)] = scrapy
-                else:
-                    pass
             except Empty:
                 break
             except KeyboardInterrupt:
@@ -445,15 +442,15 @@ class ZCoolScraper():
                 continue
 
         try:
-            for idx, future in enumerate(as_completed(image_futuress)):
+            for future in as_completed(image_futuress):
                 scrapy = image_futuress.get(future)
                 try:
-                    if future.result():
-                        self.stat["images_pass"].add(scrapy)
-                    else:
-                        self.stat["images_fail"].add(scrapy)
+                    future.result()
+                    self.stat["images_pass"].add(scrapy)
                 except Exception:
                     self.stat["images_fail"].add(scrapy)
+                    cprint(f'Download image: {scrapy.title}[{scrapy.index + 1}] '
+                           f'({scrapy.url}) failed.', 'red')
         except KeyboardInterrupt:
             raise
         finally:
@@ -476,13 +473,12 @@ class ZCoolScraper():
 @click.option('-u', '--usernames', 'names', help='One or more user names, separated by commas.')
 @click.option('-i', '--ids', 'ids', help='One or more user ids, separated by commas.')
 @click.option('-t', '--topics', 'topics', help='Specific topics of this user to download, separated by commas.')
-@click.option('-d', '--destination', 'dest', help='Directory to save images.')
+@click.option('-d', '--destination', 'dest', help='Destination to save images.')
 @click.option('-R', '--retries', 'retries', default=RETRIES, show_default=True, type=int,
               help='Repeat download for failed images.')
 @click.option('-r', '--redownload', 'redownload', help='Redownload images from failed records.')
-@click.option('-o', '--overwrite', 'overwrite', is_flag=True, default=False, show_default=True,
-              help='Override existing files.')
-@click.option('--thumbnail', 'thumbnail', is_flag=True, default=False, show_default=True,
+@click.option('-o', '--overwrite', 'overwrite', is_flag=True, default=False, help='Override existing files.')
+@click.option('--thumbnail', 'thumbnail', is_flag=True, default=False,
               help='Download thumbnails with a maximum width of 1280px.')
 @click.option('--max-pages', 'max_pages', type=int, help='Maximum pages to download.')
 @click.option('--max-topics', 'max_topics', type=int, help='Maximum topics per page to download.')

@@ -69,16 +69,16 @@ def convert_to_safe_filename(filename):
 def parse_users(ids, names):
     """
     解析用户名或 ID。
-    :param str ids: 半角逗号分割的用户 ID
-    :param str names: 半角逗号分割的用户名
+    :param str ids: 半角逗号分隔的用户 ID
+    :param str names: 半角逗号分隔的用户名
     :return list: 包含 User 数据的列表
     """
     User = namedtuple('User', 'id name')
     users = []
 
     if names:
-        users = [User('', name) for name in names.split(',')]
+        users = [User(None, name) for name in names.split(',')]
     elif ids:
-        users = [User(uid, '') for uid in ids.split(',')]
+        users = [User(uid, None) for uid in ids.split(',')]
 
     return users

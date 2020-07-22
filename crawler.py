@@ -5,6 +5,5 @@ import sys
 
 from scraper import zcool_command
 
-
 if __name__ == '__main__':
     sys.exit(zcool_command())
