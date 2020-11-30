@@ -1,7 +1,7 @@
-# -*- coding: utf-8 -*-
-# @Author: lonsty
-# @Date:   2019-09-07 18:34:18
+# @AUTHOR: lonsty
+# @DATE:   2019-09-07 18:34:18
 import json
+import math
 import os.path as op
 import re
 import sys
@@ -10,26 +10,32 @@ import time
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from datetime import datetime
+from pathlib import Path
 from queue import Empty, Queue
+from typing import List
 from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
 import click
 import requests
 from bs4 import BeautifulSoup
+from pydantic import HttpUrl
 from termcolor import colored, cprint
 
-from scraper.utils import (convert_to_safe_filename, mkdirs_if_not_exist,
-                           parse_users, retry)
+from scraper.utils import (safe_filename, mkdirs_if_not_exist,
+                           parse_resources, retry)
 
 Scrapy = namedtuple('Scrapy', 'type author title objid index url')  # 用于记录下载任务
-HEADERS = {'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
-                         '(KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36'}
+HEADERS = {
+    'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+                  '(KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36'
+}
 HOST_PAGE = 'https://www.zcool.com.cn'
 SEARCH_DESIGNER_SUFFIX = '/search/designer?&word={word}'
 USER_SUFFIX = '/u/{id}'
 PAGE_SUFFIX = '?myCate=0&sort=1&p={page}'
 WORK_SUFFIX = '/work/content/show?p=1&objectId={objid}'
+COLLECTION_SUFFIX = '/collection/contents?id={objid}&p={page}&pageSize=25'
 USER_API = 'https://www.zcool.com.cn/member/card/{id}'
 TIMEOUT = 30
 Q_TIMEOUT = 1
@@ -40,7 +46,7 @@ thread_local = threading.local()
 
 
 def get_session():
-    """使线程获取同一个Session，可减少 TCP 连接数，加速请求。
+    """使线程获取同一个 Session，可减少 TCP 连接数，加速请求。
 
     :return requests.Session: session
     """
@@ -64,13 +70,14 @@ def session_request(url: str, method: str = 'GET') -> requests.Response:
 
 class ZCoolScraper():
 
-    def __init__(self, user_id=None, username=None, destination=None, max_pages=None,
-                 spec_topics=None, max_topics=None, max_workers=None, retries=None,
-                 redownload=None, overwrite=False, thumbnail=False):
+    def __init__(self, user_id=None, username=None, collection=None, destination=None,
+                 max_pages=None, spec_topics=None, max_topics=None, max_workers=None,
+                 retries=None, redownload=None, overwrite=False, thumbnail=False):
         """初始化下载参数。
 
         :param int user_id: 用户 ID
         :param str username: 用户名
+        :param HttpUrl collection: 收藏集 URL
         :param str destination: 图片保存到本地的路径，默认当前路径
         :param int max_pages: 最大爬取页数，默认所有
         :param list spec_topics: 需要下载的特定主题
@@ -83,7 +90,7 @@ class ZCoolScraper():
         """
         self.start_time = datetime.now()
         print(f' - - - - - -+-+ {self.start_time.ctime()} +-+- - - - - -\n')
-
+        self.collection = collection
         self.spec_topics = spec_topics
         self.max_topics = max_topics or 'all'
         self.max_workers = max_workers or MAX_WORKERS
@@ -93,71 +100,93 @@ class ZCoolScraper():
         self.pages = Queue()
         self.topics = Queue()
         self.images = Queue()
-        self.stat = {'npages': 0,
-                     'ntopics': 0,
-                     'nimages': 0,
-                     'pages_pass': set(),
-                     'pages_fail': set(),
-                     'topics_pass': set(),
-                     'topics_fail': set(),
-                     'images_pass': set(),
-                     'images_fail': set()}
+        self.stat = {
+            'npages': 0,
+            'ntopics': 0,
+            'nimages': 0,
+            'pages_pass': set(),
+            'pages_fail': set(),
+            'topics_pass': set(),
+            'topics_fail': set(),
+            'images_pass': set(),
+            'images_fail': set()
+        }
 
         if retries:
             # 重置全局变量 RETRIES
             global RETRIES
             RETRIES = retries
 
+        dest = Path(destination or '', urlparse(HOST_PAGE).netloc)
+
+        # 从记录文件中的失败项开始下载
         if redownload:
-            # 从记录文件中的失败项开始下载
             self.username = self.reload_records(redownload)
             self.user_id = self.search_id_by_username(self.username)
             self.max_pages = self.pages.qsize()
             self.max_topics = self.topics.qsize()
-            self.directory = op.abspath(op.join(destination or '',
-                                                urlparse(HOST_PAGE).netloc,
-                                                convert_to_safe_filename(self.username)))
-            self.stat.update({'npages': self.max_pages,
-                              'ntopics': self.max_topics,
-                              'nimages': self.images.qsize()})
+            self.directory = dest / safe_filename(self.username)
+            self.stat.update({
+                'npages': self.max_pages,
+                'ntopics': self.max_topics,
+                'nimages': self.images.qsize()
+            })
             print(f'{"Username".rjust(17)}: {colored(self.username, "cyan")}\n'
                   f'{"User ID".rjust(17)}: {self.user_id}\n'
                   f'{"Pages to scrapy".rjust(17)}: {self.max_pages:2d}\n'
                   f'{"Topics to scrapy".rjust(17)}: {self.max_topics:3d}\n'
                   f'{"Images to scrapy".rjust(17)}: {self.images.qsize():4d}\n'
                   f'Storage directory: {colored(self.directory, attrs=["underline"])}', end='\n\n')
-            self.fetch_all(redownload=True)
+            self.fetch_all(initialized=True)
             return
 
-        self.user_id = user_id or self.search_id_by_username(username)
-        self.base_url = urljoin(HOST_PAGE, USER_SUFFIX.format(id=self.user_id))
+        # 从收藏集下载
+        if collection:
+            objid = self.parse_objid(collection, is_collection=True)
+            resp = session_request(urljoin(HOST_PAGE, COLLECTION_SUFFIX.format(objid=objid, page=1)))
+            data = resp.json().get('data', {})
+            total = data.get('total', 0)
+            page_size = data.get('pageable', {}).get('pageSize')
+            max_pages_ = math.ceil(total / page_size)
+            collection_name = data.get("content", [{}])[0].get('subCateStr', 'Unknown')
+            self.max_pages = min(max_pages or 9999, max_pages_)
+            self.directory = dest / safe_filename(f'{self.username}-{collection_name}')
+            self.parse_collection_topics(data.get('content'))
 
-        try:
-            response = session_request(self.base_url)
-        except requests.exceptions.ProxyError:
-            cprint('Cannot connect to proxy.', 'red')
-            sys.exit(1)
-        except Exception as e:
-            cprint(f'Failed to connect to {self.base_url}, {e}', 'red')
-            sys.exit(1)
+            # 解析第 2 页 至 最大页的 topic 到下载任务
+            for page in range(2, self.max_pages + 1):
+                resp = session_request(urljoin(HOST_PAGE, COLLECTION_SUFFIX.format(objid=objid, page=page)))
+                self.parse_collection_topics(resp.json().get('data', {}).get('content'))
 
-        soup = BeautifulSoup(markup=response.text, features='html.parser')
-        try:
-            author = soup.find(name='div', id='body').get('data-name')
-            if username and username != author:
-                cprint(f'Invalid user id:「{user_id}」or username:「{username}」!', 'red')
+        # 根据用户 ID 或用户名下载
+        else:
+            self.user_id = user_id or self.search_id_by_username(username)
+            self.base_url = urljoin(HOST_PAGE, USER_SUFFIX.format(id=self.user_id))
+
+            try:
+                response = session_request(self.base_url)
+            except requests.exceptions.ProxyError:
+                cprint('Cannot connect to proxy.', 'red')
                 sys.exit(1)
-            self.username = author
-        except Exception:
-            self.username = username or 'anonymous'
-        self.directory = op.abspath(op.join(destination or '',
-                                            urlparse(HOST_PAGE).netloc,
-                                            convert_to_safe_filename(self.username)))
-        try:
-            max_page = int(soup.find(id='laypage_0').find_all(name='a')[-2].text)
-        except Exception:
-            max_page = 1
-        self.max_pages = min(max_pages or 9999, max_page)
+            except Exception as e:
+                cprint(f'Failed to connect to {self.base_url}, {e}', 'red')
+                sys.exit(1)
+
+            soup = BeautifulSoup(markup=response.text, features='html.parser')
+            try:
+                author = soup.find(name='div', id='body').get('data-name')
+                if username and username != author:
+                    cprint(f'Invalid user id:「{user_id}」or username:「{username}」!', 'red')
+                    sys.exit(1)
+                self.username = author
+            except Exception:
+                self.username = username or 'anonymous'
+            self.directory = dest / safe_filename(self.username)
+            try:
+                max_pages_ = int(soup.find(id='laypage_0').find_all(name='a')[-2].text)
+            except Exception:
+                max_pages_ = 1
+            self.max_pages = min(max_pages or 9999, max_pages_)
 
         if self.spec_topics:
             topics = ', '.join(self.spec_topics)
@@ -167,13 +196,13 @@ class ZCoolScraper():
             topics = self.max_pages * self.max_topics
         print(f'{"Username".rjust(17)}: {colored(self.username, "cyan")}\n'
               f'{"User ID".rjust(17)}: {self.user_id}\n'
-              f'{"Maximum pages".rjust(17)}: {max_page}\n'
+              f'{"Maximum pages".rjust(17)}: {max_pages_}\n'
               f'{"Pages to scrapy".rjust(17)}: {self.max_pages}\n'
               f'{"Topics to scrapy".rjust(17)}: {topics}\n'
               f'Storage directory: {colored(self.directory, attrs=["underline"])}', end='\n\n')
 
         self.END_PARSING_TOPICS = False
-        self.fetch_all()
+        self.fetch_all(initialized=True if self.collection else False)
 
     def search_id_by_username(self, username):
         """通过用户昵称查找用户 ID。
@@ -221,12 +250,25 @@ class ZCoolScraper():
 
     def generate_pages(self):
         """根据最大下载页数，生成需要爬取主页的任务。"""
-        for i in range(1, self.max_pages + 1):
-            url = urljoin(self.base_url, PAGE_SUFFIX.format(page=i))
-            scrapy = Scrapy(type='page', author=self.username, title=i,
-                            objid=None, index=i - 1, url=url)
+        for page in range(1, self.max_pages + 1):
+            suffix = COLLECTION_SUFFIX if self.collection else PAGE_SUFFIX
+            url = urljoin(self.base_url, suffix.format(page=page))
+            scrapy = Scrapy(type='page', author=self.username, title=page,
+                            objid=None, index=page - 1, url=url)
             if scrapy not in self.stat["pages_pass"]:
                 self.pages.put(scrapy)
+
+    def parse_collection_topics(self, topics: List[dict], offset: int = 0):
+        for idx, topic in enumerate(topics):
+            new_scrapy = Scrapy(type='topic',
+                                author=topic.get('creatorObj', {}).get('username'),
+                                title=topic.get('title'),
+                                objid=topic.get('id'),
+                                index=offset + idx,
+                                url=topic.get('pageUrl'))
+            if new_scrapy not in self.stat["topics_pass"]:
+                self.topics.put(new_scrapy)
+                self.stat["ntopics"] += 1
 
     def parse_topics(self, scrapy):
         """爬取主页，解析所有 topic，并将爬取主题的任务添加到任务队列。
@@ -270,6 +312,20 @@ class ZCoolScraper():
                 cprint(f'GET page: {scrapy.title} ({scrapy.url}) failed.', 'red')
         self.END_PARSING_TOPICS = True
 
+    def parse_objid(self, url: HttpUrl, is_collection: bool = False) -> str:
+        """根据 topic 页面解析 objid
+
+        :param url: topic 或 collection 的 URL
+        :return: objid
+        """
+        soup = BeautifulSoup(session_request(url).text, 'html.parser')
+        objid = soup.find('input', id='dataInput').attrs.get('data-objid')
+        if is_collection:
+            user = soup.find(name='span', class_='details-user-avatar')
+            self.user_id = user.find('div').attrs.get('data-id')
+            self.username = user.find('a').attrs.get('title')
+        return objid
+
     def parse_images(self, scrapy):
         """爬取 topic，获得 objid 后直接调用 API，从返回数据里获得图片地址等信息，
 
@@ -277,9 +333,7 @@ class ZCoolScraper():
         :param scrapy: 记录任务信息的数据体
         :return Scrapy: 记录任务信息的数据体
         """
-        topic_resp = session_request(scrapy.url)
-        objid = BeautifulSoup(topic_resp.text, 'html.parser').find('input', id='dataInput').attrs.get('data-objid')
-
+        objid = scrapy.objid or self.parse_objid(scrapy.url)
         resp = session_request(urljoin(HOST_PAGE, WORK_SUFFIX.format(objid=objid)))
         data = resp.json().get('data', {})
         author = data.get('product', {}).get('creatorObj', {}).get('username')
@@ -292,7 +346,6 @@ class ZCoolScraper():
             if new_scrapy not in self.stat["images_pass"]:
                 self.images.put(new_scrapy)
                 self.stat["nimages"] += 1
-
         return scrapy
 
     def fetch_images(self):
@@ -317,9 +370,9 @@ class ZCoolScraper():
                 self.stat["topics_fail"].add(scrapy)
                 cprint(f'GET topic: {scrapy.title} ({scrapy.url}) failed.', 'red')
 
-    def fetch_all(self, redownload: bool = False):
+    def fetch_all(self, initialized: bool = False):
         """同时爬取主页、主题，并更新状态。"""
-        if not redownload:
+        if not initialized:
             self.generate_pages()
         fetch_futures = [self.pool.submit(self.fetch_topics),
                          self.pool.submit(self.fetch_images)]
@@ -383,8 +436,8 @@ class ZCoolScraper():
         except IndexError:
             name = uuid4().hex + '.jpg'
 
-        path = op.join(self.directory, convert_to_safe_filename(scrapy.title))
-        filename = op.join(path, f'[{scrapy.index + 1 or 0:02d}]{name}')
+        path = self.directory / safe_filename(scrapy.title)
+        filename = path / f'[{scrapy.index + 1 or 0:02d}]{name}'
         if (not self.overwrite) and op.isfile(filename):
             return scrapy
 
@@ -405,8 +458,8 @@ class ZCoolScraper():
 
         :return str: 记录文件的路径
         """
-        filename = f'{convert_to_safe_filename(self.start_time.isoformat()[:-7])}.json'
-        abspath = op.abspath(op.join(self.directory, filename))
+        filename = f'{safe_filename(self.start_time.isoformat()[:-7])}.json'
+        abspath = op.abspath(self.directory / filename)
         with open(abspath, 'w', encoding='utf-8') as f:
             success = (self.stat["pages_pass"] | self.stat["topics_pass"] | self.stat["images_pass"])
             fail = (self.stat["pages_fail"] | self.stat["topics_fail"] | self.stat["images_fail"])
@@ -414,9 +467,11 @@ class ZCoolScraper():
             s_ordered = sorted(success, key=lambda x: (type_order[x.type], x.objid, x.index, x.title, x.url))
             f_ordered = sorted(fail, key=lambda x: (type_order[x.type], x.objid, x.index, x.title, x.url))
 
-            records = {'time': self.start_time.isoformat(),
-                       'success': [scrapy._asdict() for scrapy in s_ordered],
-                       'fail': [scrapy._asdict() for scrapy in f_ordered]}
+            records = {
+                'time': self.start_time.isoformat(),
+                'success': [scrapy._asdict() for scrapy in s_ordered],
+                'fail': [scrapy._asdict() for scrapy in f_ordered]
+            }
             f.write(json.dumps(records, ensure_ascii=False, indent=2))
         return abspath
 
@@ -460,7 +515,7 @@ class ZCoolScraper():
         if saved_images or failed_images:
             if saved_images:
                 print(f'Saved {colored(saved_images, "green")} images to '
-                      f'{colored(self.directory, attrs=["underline"])}')
+                      f'{colored(self.directory.absolute(), attrs=["underline"])}')
             records_path = self.save_records()
             print(f'Saved records to {colored(records_path, attrs=["underline"])}')
         else:
@@ -469,23 +524,25 @@ class ZCoolScraper():
 
 @click.command()
 @click.option('-u', '--usernames', 'names', help='One or more user names, separated by commas.')
-@click.option('-i', '--ids', 'ids', help='One or more user ids, separated by commas.')
-@click.option('-t', '--topics', 'topics', help='Specific topics of this user to download, separated by commas.')
+@click.option('-i', '--ids', 'ids', help='One or more user IDs, separated by commas.')
+@click.option('-c', '--collections', 'collections', help='One or more collection URLs, separated by commas.')
+@click.option('-t', '--topics', 'topics', help='Specific topics to download, separated by commas.')
 @click.option('-d', '--destination', 'destination', help='Destination to save images.')
 @click.option('-R', '--retries', 'retries', default=RETRIES, show_default=True, type=int,
               help='Repeat download for failed images.')
-@click.option('-r', '--redownload', 'redownload', help='Redownload images from failed records.')
-@click.option('-o', '--overwrite', 'overwrite', is_flag=True, default=False, help='Override existing files.')
+@click.option('-r', '--redownload', 'redownload',
+              help='Redownload images from failed records (PATH of the .json file).')
+@click.option('-o', '--overwrite', 'overwrite', is_flag=True, default=False, help='Override the existing files.')
 @click.option('--thumbnail', 'thumbnail', is_flag=True, default=False,
               help='Download thumbnails with a maximum width of 1280px.')
 @click.option('--max-pages', 'max_pages', type=int, help='Maximum pages to download.')
 @click.option('--max-topics', 'max_topics', type=int, help='Maximum topics per page to download.')
 @click.option('--max-workers', 'max_workers', default=MAX_WORKERS, show_default=True, type=int,
               help='Maximum thread workers.')
-def zcool_command(ids, names, destination, max_pages, topics, max_topics,
+def zcool_command(ids, names, collections, destination, max_pages, topics, max_topics,
                   max_workers, retries, redownload, overwrite, thumbnail):
-    """ZCool picture crawler. Download ZCool (https://www.zcool.com.cn/)
-    Designer's or User's pictures, photos and illustrations.
+    """ZCool picture crawler, download pictures, photos and illustrations of
+    ZCool (https://zcool.com.cn/). Visit https://github.com/lonsty/scraper.
     """
     if redownload:
         scraper = ZCoolScraper(destination=destination, max_pages=max_pages, spec_topics=topics,
@@ -493,17 +550,17 @@ def zcool_command(ids, names, destination, max_pages, topics, max_topics,
                                redownload=redownload, overwrite=overwrite, thumbnail=thumbnail)
         scraper.run_scraper()
 
-    elif ids or names:
+    elif any([ids, names, collections]):
         topics = topics.split(',') if topics else []
-        users = parse_users(ids, names)
-        for user in users:
-            scraper = ZCoolScraper(user_id=user.id, username=user.name, destination=destination,
-                                   max_pages=max_pages, spec_topics=topics, max_topics=max_topics,
-                                   max_workers=max_workers, retries=retries, redownload=redownload,
-                                   overwrite=overwrite)
+        resources = parse_resources(ids, names, collections)
+        for res in resources:
+            scraper = ZCoolScraper(user_id=res.id, username=res.name, collection=res.collection,
+                                   destination=destination, max_pages=max_pages, spec_topics=topics,
+                                   max_topics=max_topics, max_workers=max_workers, retries=retries,
+                                   redownload=redownload, overwrite=overwrite)
             scraper.run_scraper()
 
     else:
-        click.echo('Must give an <id> or <username>!')
+        click.echo('Try "python crawler.py --help" for help.')
         return 1
     return 0

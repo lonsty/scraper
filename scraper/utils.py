@@ -53,7 +53,7 @@ def mkdirs_if_not_exist(dir):
             pass
 
 
-def convert_to_safe_filename(filename):
+def safe_filename(filename):
     """去掉文件名中的非法字符。
 
     :param str filename: 文件名
@@ -62,19 +62,19 @@ def convert_to_safe_filename(filename):
     return "".join([c for c in filename if c not in r'\/:*?"<>|']).strip()
 
 
-def parse_users(ids, names):
+def parse_resources(ids, names, collections):
     """解析用户名或 ID。
 
     :param str ids: 半角逗号分隔的用户 ID
     :param str names: 半角逗号分隔的用户名
     :return list: 包含 User 数据的列表
     """
-    User = namedtuple('User', 'id name')
-    users = []
-
-    if names:
-        users = [User(None, name) for name in names.split(',')]
+    Resource = namedtuple('Resource', 'id name collection')
+    resources = []
+    if collections:
+        resources = [Resource(None, None, collection) for collection in collections.split(',')]
+    elif names:
+        resources = [Resource(None, name, None) for name in names.split(',')]
     elif ids:
-        users = [User(uid, None) for uid in ids.split(',')]
-
-    return users
+        resources = [Resource(uid, None, None) for uid in ids.split(',')]
+    return resources  # TODO: 去重

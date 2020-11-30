@@ -19,6 +19,7 @@ PS: `scraper` 本来是规划用来存放各式各样的爬虫程序的。站酷
 - [x] 增量下载：设计师/用户有新的上传，再跑一遍程序就行了 O(∩_∩)O 嗯！
 - [x] 自选主题：可以选择下载用户的特定主题，而不是该用户下的所有内容
 - [x] 超清原图：默认下载超清原图（约几 MB），使用参数 `--thumbnail` 下载缩略图（宽最大 1280px，约 500KB）
+- [x] 下载收藏夹 `New`：使用 `-c <收藏夹 URL, ...>` 下载收藏夹中的作品（收藏夹可自由创建）
 
 ### 环境：
 
@@ -86,18 +87,19 @@ $ python crawler.py --help
 
 Usage: crawler.py [OPTIONS]
 
-  ZCool picture crawler. Download ZCool (https://www.zcool.com.cn/)
-  Designer's or User's pictures, photos and illustrations.
+  ZCool picture crawler, download pictures, photos and illustrations of
+  ZCool (https://zcool.com.cn/). Visit https://github.com/lonsty/scraper.
 
 Options:
   -u, --usernames TEXT    One or more user names, separated by commas.
-  -i, --ids TEXT          One or more user ids, separated by commas.
-  -t, --topics TEXT       Specific topics of this user to download, separated
-                          by commas.
+  -i, --ids TEXT          One or more user IDs, separated by commas.
+  -c, --collections TEXT  One or more collection URLs, separated by commas.
+  -t, --topics TEXT       Specific topics to download, separated by commas.
   -d, --destination TEXT  Destination to save images.
   -R, --retries INTEGER   Repeat download for failed images.  [default: 3]
-  -r, --redownload TEXT   Redownload images from failed records.
-  -o, --overwrite         Override existing files.
+  -r, --redownload TEXT   Redownload images from failed records (PATH of the
+                          .json file).
+  -o, --overwrite         Override the existing files.
   --thumbnail             Download thumbnails with a maximum width of 1280px.
   --max-pages INTEGER     Maximum pages to download.
   --max-topics INTEGER    Maximum topics per page to download.
@@ -106,6 +108,10 @@ Options:
 ```
 
 # 更新历史
+
+- ## Version 0.1.4 (2020.11.30)
+
+    - 新增功能：新参数 `-c <收藏夹 URL, ...>`，支持下载收藏夹中的作品。
 
 - ## Version 0.1.3 (2020.07.22)
 
