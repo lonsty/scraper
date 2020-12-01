@@ -148,9 +148,8 @@ class ZCoolScraper():
             total = data.get('total', 0)
             page_size = data.get('pageable', {}).get('pageSize')
             max_pages_ = math.ceil(total / page_size)
-            collection_name = data.get("content", [{}])[0].get('subCateStr', 'Unknown')
             self.max_pages = min(max_pages or 9999, max_pages_)
-            self.directory = dest / safe_filename(f'{self.username}-{collection_name}')
+            self.directory = dest / safe_filename(f'{self.username}-{self._collection_name}')
             self.parse_collection_topics(data.get('content'))
 
             # 解析第 2 页 至 最大页的 topic 到下载任务
@@ -321,6 +320,7 @@ class ZCoolScraper():
         soup = BeautifulSoup(session_request(url).text, 'html.parser')
         objid = soup.find('input', id='dataInput').attrs.get('data-objid')
         if is_collection:
+            self._collection_name = soup.find('h2', class_='title-h2').text
             user = soup.find(name='span', class_='details-user-avatar')
             self.user_id = user.find('div').attrs.get('data-id')
             self.username = user.find('a').attrs.get('title')
