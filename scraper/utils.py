@@ -82,6 +82,13 @@ def parse_resources(ids, names, collections):
 
 
 def sort_records(records: Iterable, order: dict):
+    """根据自定义的排序规则排序
+
+    :param Iterable records: 要排序的记录
+    :param dict order: 自定义的排序
+    :return:
+    """
+
     def _order_by(obj: namedtuple):
         if obj.type == 'topic':
             return (order[obj.type], obj.index, obj.objid, obj.title, obj.url)

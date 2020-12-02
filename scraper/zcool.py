@@ -19,11 +19,10 @@ from uuid import uuid4
 import click
 import requests
 from bs4 import BeautifulSoup
-from pydantic import HttpUrl
 from termcolor import colored, cprint
 
-from scraper.utils import (safe_filename, mkdirs_if_not_exist,
-                           parse_resources, retry, sort_records)
+from scraper.utils import (mkdirs_if_not_exist, parse_resources, retry,
+                           safe_filename, sort_records)
 
 Scrapy = namedtuple('Scrapy', 'type author title objid index url')  # 用于记录下载任务
 HEADERS = {
@@ -312,7 +311,7 @@ class ZCoolScraper():
                 cprint(f'GET page: {scrapy.title} ({scrapy.url}) failed.', 'red')
         self.END_PARSING_TOPICS = True
 
-    def parse_objid(self, url: HttpUrl, is_collection: bool = False) -> str:
+    def parse_objid(self, url: str, is_collection: bool = False) -> str:
         """根据 topic 页面解析 objid
 
         :param url: topic 或 collection 的 URL

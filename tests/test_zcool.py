@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """Tests for `zcooldl` package."""
 import unittest
+
 from click.testing import CliRunner
 
 from scraper.zcool import zcool_command
@@ -23,7 +24,7 @@ class TestZcooldl(unittest.TestCase):
         runner = CliRunner()
         result = runner.invoke(zcool_command)
         assert result.exit_code == 0
-        assert 'Must give an <id> or <username>!' in result.output
+        assert 'Try "python crawler.py --help" for help.' in result.output
         help_result = runner.invoke(zcool_command, ['--help'])
         assert help_result.exit_code == 0
         assert 'Show this message and exit.' in help_result.output
