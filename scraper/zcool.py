@@ -23,7 +23,7 @@ from pydantic import HttpUrl
 from termcolor import colored, cprint
 
 from scraper.utils import (safe_filename, mkdirs_if_not_exist,
-                           parse_resources, retry)
+                           parse_resources, retry, sort_records)
 
 Scrapy = namedtuple('Scrapy', 'type author title objid index url')  # 用于记录下载任务
 HEADERS = {
@@ -155,7 +155,8 @@ class ZCoolScraper():
             # 解析第 2 页 至 最大页的 topic 到下载任务
             for page in range(2, self.max_pages + 1):
                 resp = session_request(urljoin(HOST_PAGE, COLLECTION_SUFFIX.format(objid=objid, page=page)))
-                self.parse_collection_topics(resp.json().get('data', {}).get('content'))
+                self.parse_collection_topics(topics=resp.json().get('data', {}).get('content'),
+                                             offset=page_size * (page - 1))
 
         # 根据用户 ID 或用户名下载
         else:
@@ -464,8 +465,8 @@ class ZCoolScraper():
             success = (self.stat["pages_pass"] | self.stat["topics_pass"] | self.stat["images_pass"])
             fail = (self.stat["pages_fail"] | self.stat["topics_fail"] | self.stat["images_fail"])
             type_order = {'page': 1, 'topic': 2, 'image': 3}
-            s_ordered = sorted(success, key=lambda x: (type_order[x.type], x.objid, x.index, x.title, x.url))
-            f_ordered = sorted(fail, key=lambda x: (type_order[x.type], x.objid, x.index, x.title, x.url))
+            s_ordered = sort_records(success, order=type_order)
+            f_ordered = sort_records(fail, order=type_order)
 
             records = {
                 'time': self.start_time.isoformat(),

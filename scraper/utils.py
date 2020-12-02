@@ -6,6 +6,7 @@ import random
 import time
 from collections import namedtuple
 from functools import wraps
+from typing import Iterable
 
 
 def retry(exceptions, tries=3, delay=1, backoff=2, logger=None):
@@ -78,3 +79,12 @@ def parse_resources(ids, names, collections):
     elif ids:
         resources = [Resource(uid, None, None) for uid in ids.split(',')]
     return resources  # TODO: 去重
+
+
+def sort_records(records: Iterable, order: dict):
+    def _order_by(obj: namedtuple):
+        if obj.type == 'topic':
+            return (order[obj.type], obj.index, obj.objid, obj.title, obj.url)
+        return (order[obj.type], obj.objid, obj.index, obj.title, obj.url)
+
+    return sorted(records, key=_order_by)
