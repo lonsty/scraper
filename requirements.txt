@@ -1,4 +1,7 @@
-Click==7.0
-beautifulsoup4==4.9.1
-requests==2.24.0
-termcolor==1.1.0
+aiofiles>=0.6.0
+beautifulsoup4>=4.9.1
+click>=7.0
+requests>=2.24.0
+ruia[uvloop]>=0.7.1
+termcolor>=1.1.0
+typer>=0.3.2

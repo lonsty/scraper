@@ -1,6 +1,6 @@
 # scraper
 
-极速爬取下载站酷（[https://www.zcool.com.cn/](https://www.zcool.com.cn/)）`设计师/用户` 上传的全部 `图片/照片/插画`。
+图片爬取下载工具，极速爬取下载 站酷（[https://www.zcool.com.cn/](https://www.zcool.com.cn/)）、CNU 视觉（[http://www.cnu.cc/](http://www.cnu.cc/)）`设计师/用户` 上传的 `图片/照片/插画`。
 
 **:tada: :tada: :tada: 此下载工具已发布到 PyPI**
 
@@ -9,17 +9,27 @@
 - 快速安装：`pip install -U zcooldl`
 - 使用方式：`zcooldl -u <username>`
 
-PS: `scraper` 本来是规划用来存放各式各样的爬虫程序的。站酷仅仅是当初构想中的一个，因为太懒而没有新增其他爬虫。
+`scraper` 本来是规划用来存放各式各样的爬虫程序的。站酷仅仅是当初构想中的一个，因为太懒而没有新增其他爬虫。
 想不到 [zcool.py](scraper/zcool.py) 竟然从原来的几十行代码，逐步增加到现在的 500+ 行 :joy: :joy: :joy:。
 
 ### 特点：
 
+#### Zcool 站酷
+
 - [x] 极速下载：多线程异步下载，可以根据需要设置线程数
-- [x] 异常重试：只要重试次数足够多，就没有下载不下来的图片 \(^o^)/！
-- [x] 增量下载：设计师/用户有新的上传，再跑一遍程序就行了 O(∩_∩)O 嗯！
-- [x] 自选主题：可以选择下载用户的特定主题，而不是该用户下的所有内容
 - [x] 超清原图：默认下载超清原图（约几 MB），使用参数 `--thumbnail` 下载缩略图（宽最大 1280px，约 500KB）
 - [x] 下载收藏夹 `New`：使用 `-c <收藏夹 URL, ...>` 下载收藏夹中的作品（收藏夹可自由创建）
+
+#### CNU 视觉
+
+- [x] 下载 [视觉（CNU）](http://www.cnu.cc/) 作品 `New`：试用异步爬虫框架 [ruia](https://github.com/howie6879/ruia)
+
+支持下载：
+
+| 网站 | 入口 | 示例 |
+|:---:|:---:|:---:|
+| [Zcool 站酷](https://www.zcool.com.cn/)  | [zcool.py](zcool.py) | `python zcool.py -u 叁乔居` |
+| [CNU 视觉](http://www.cnu.cc/) | [cnu.py](cnu.py) | `python cnu.py http://www.cnu.cc/works/117783` |
 
 ### 环境：
 
@@ -27,36 +37,40 @@ PS: `scraper` 本来是规划用来存放各式各样的爬虫程序的。站酷
 
 # 快速使用
 
-## 1. 克隆项目到本地
+首先克隆项目到本地，并安装依赖：
 
 ```sh
 $ git clone https://github.com/lonsty/scraper.git
-```
 
-## 2. 安装依赖包
-
-```sh
 $ cd scraper
 $ pip install -r requirements.txt
 ```
 
-## 3. 快速使用
+1. 下载 [站酷（Zcool）](https://www.zcool.com.cn/) 作品
 
 下载用户名为 `username` 的所有图片到路径 `path` 下：
 
 ```sh
-$ python crawler.py -u <username> -d <path>
+$ python zcool.py -u <username> -d <path>
 ```
 
 运行截图
 
 ![screenshot_04.png](screenshots/04.png)
 
-![screenshot_01.png](screenshots/03.png)
+![screenshot_03.png](screenshots/03.png)
+
+![screenshot_05.png](screenshots/05.png)
 
 爬取结果
 
 ![screenshot_02.png](screenshots/02.png)
+
+2. 下载 [视觉（CNU）](http://www.cnu.cc/) 作品
+
+```sh
+python cnu.py <WORK_URL1> <WORKURL2> ...
+```
 
 # 使用帮助
 
@@ -65,27 +79,28 @@ $ python crawler.py -u <username> -d <path>
 1. 只下载用户的**部分主题**
 
 ```sh
-$ python crawler.py -u <username> -t <topic1>,<topic2>,...
+$ python zcool.py -u <username> -t <topic1>,<topic2>,...
 ```
 
 2. 一次性下载**多个用户**的所有图片
 
 ```sh
-$ python crawler.py -u <username1>,<username2>,...
+$ python zcool.py -u <username1>,<username2>,...
 ```
 
 3. 部分图片**下载失败**或有**更新**，再执行相同的命令，对失败或新增的图片进行下载
 
 ```sh
-$ python crawler.py -u <username> -d <last-saved-path>
+$ python zcool.py -u <username> -d <last-saved-path>
 ```
 
 ### 查看所有命令
 
-```
-$ python crawler.py --help
+```sh
+# Zcool 站酷
+$ python zcool.py --help
 
-Usage: crawler.py [OPTIONS]
+Usage: zcool.py [OPTIONS]
 
   ZCool picture crawler, download pictures, photos and illustrations of
   ZCool (https://zcool.com.cn/). Visit https://github.com/lonsty/scraper.
@@ -105,6 +120,42 @@ Options:
   --max-topics INTEGER    Maximum topics per page to download.
   --max-workers INTEGER   Maximum thread workers.  [default: 20]
   --help                  Show this message and exit.
+
+# CNU 视觉
+$ python cnu.py --help
+Usage: cnu.py [OPTIONS] START_URLS...
+
+  A scraper to download images from http://www.cnu.cc/
+
+Arguments:
+  START_URLS...  URLs of the works  [required]
+
+Options:
+  --destination PATH              Destination directory to save the images
+                                  [default: .]
+
+  --overwrite / --no-overwrite    Whether to overwrite existing images
+                                  [default: False]
+
+  --retries INTEGER               Times of retries when the download fails
+                                  [default: 3]
+
+  --concurrency INTEGER           Maximum number of parallel workers
+                                  [default: 10]
+
+  --timeout FLOAT                 HTTP request timeout, in seconds  [default:
+                                  20.0]
+
+  --thumbnail / --no-thumbnail    Whether to download the thumbnail image
+                                  [default: False]
+
+  --install-completion [bash|zsh|fish|powershell|pwsh]
+                                  Install completion for the specified shell.
+  --show-completion [bash|zsh|fish|powershell|pwsh]
+                                  Show completion for the specified shell, to
+                                  copy it or customize the installation.
+
+  --help                          Show this message and exit.
 ```
 
 # 更新历史

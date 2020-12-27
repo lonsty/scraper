@@ -50,6 +50,7 @@ def mkdirs_if_not_exist(dir):
     if not os.path.isdir(dir):
         try:
             os.makedirs(dir)
+            return True
         except FileExistsError:
             pass
 

@@ -24,7 +24,7 @@ class TestZcooldl(unittest.TestCase):
         runner = CliRunner()
         result = runner.invoke(zcool_command)
         assert result.exit_code == 0
-        assert 'Try "python crawler.py --help" for help.' in result.output
+        assert 'Try "python zcool.py --help" for help.' in result.output
         help_result = runner.invoke(zcool_command, ['--help'])
         assert help_result.exit_code == 0
         assert 'Show this message and exit.' in help_result.output

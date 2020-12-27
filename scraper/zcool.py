@@ -561,6 +561,6 @@ def zcool_command(ids, names, collections, destination, max_pages, topics, max_t
             scraper.run_scraper()
 
     else:
-        click.echo('Try "python crawler.py --help" for help.')
+        click.echo('Try "python zcool.py --help" for help.')
         return 1
     return 0

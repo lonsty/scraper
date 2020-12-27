@@ -6,10 +6,13 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
+aiofiles = ">=0.6.0"
 beautifulsoup4 = ">=4.9.1"
 click = ">=7.0"
 requests = ">=2.24.0"
+ruia = {extras = ["uvloop"], version = ">=0.7.1"}
 termcolor = ">=1.1.0"
+typer = ">=0.3.2"
 
 [requires]
 python_version = "3.6"
