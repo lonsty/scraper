@@ -12,7 +12,14 @@
 `scraper` 本来是规划用来存放各式各样的爬虫程序的。站酷仅仅是当初构想中的一个，因为太懒而没有新增其他爬虫。
 想不到 [zcool.py](scraper/zcool.py) 竟然从原来的几十行代码，逐步增加到现在的 500+ 行 :joy: :joy: :joy:。
 
-### 特点：
+
+## 支持网站：
+
+| 网站 | 入口 | 示例 |
+|:---:|:---:|:---:|
+| [Zcool 站酷](https://www.zcool.com.cn/)  | [zcool.py](zcool.py) | `python zcool.py -u 叁乔居` |
+| [CNU 视觉](http://www.cnu.cc/) | [cnu.py](cnu.py) | `python cnu.py http://www.cnu.cc/users/142231` |
+
 
 #### Zcool 站酷
 
@@ -23,13 +30,17 @@
 #### CNU 视觉
 
 - [x] 下载 [视觉（CNU）](http://www.cnu.cc/) 作品 `New`：试用异步爬虫框架 [ruia](https://github.com/howie6879/ruia)
+- [x] 支持 3 类 URL 参数：
 
-支持下载：
+    - 作品集：[http://www.cnu.cc/works/117783](http://www.cnu.cc/works/117783)
+    - 用户作品页：[http://www.cnu.cc/users/142231](http://www.cnu.cc/users/652629)
+    - 用户推荐页：[http://www.cnu.cc/users/recommended/142231](http://www.cnu.cc/users/recommended/652629)
 
-| 网站 | 入口 | 示例 |
-|:---:|:---:|:---:|
-| [Zcool 站酷](https://www.zcool.com.cn/)  | [zcool.py](zcool.py) | `python zcool.py -u 叁乔居` |
-| [CNU 视觉](http://www.cnu.cc/) | [cnu.py](cnu.py) | `python cnu.py http://www.cnu.cc/works/117783` |
+    参数可接收多个 URL，且可随意组合，如：
+    
+    ```sh
+    $ python cnu.py http://www.cnu.cc/works/117783 http://www.cnu.cc/users/652629 http://www.cnu.cc/users/recommended/652629
+    ```
 
 ### 环境：
 
@@ -131,23 +142,29 @@ Arguments:
   START_URLS...  URLs of the works  [required]
 
 Options:
-  --destination PATH              Destination directory to save the images
+  -d, --destination PATH          Destination directory to save the images
                                   [default: .]
 
-  --overwrite / --no-overwrite    Whether to overwrite existing images
+  -o, --overwrite / -no, --no-overwrite
+                                  Whether to overwrite existing images
                                   [default: False]
 
-  --retries INTEGER               Times of retries when the download fails
+  -t, --thumbnail                 Whether to download the thumbnail images
+                                  [default: False]
+
+  -r, --retries INTEGER           Number of retries when the download fails
                                   [default: 3]
 
-  --concurrency INTEGER           Maximum number of parallel workers
-                                  [default: 10]
+  -w, --workers INTEGER           Number of parallel workers  [default: 2]
+  -c, --concurrency INTEGER       Number of concurrency  [default: 25]
+  --delay INTEGER                 Seconds to wait for the next request
+                                  [default: 0]
 
-  --timeout FLOAT                 HTTP request timeout, in seconds  [default:
-                                  20.0]
+  --retry-delay INTEGER           Seconds to wait for the retry request
+                                  [default: 0]
 
-  --thumbnail / --no-thumbnail    Whether to download the thumbnail image
-                                  [default: False]
+  --timeout INTEGER               Seconds of HTTP request timeout  [default:
+                                  20]
 
   --install-completion [bash|zsh|fish|powershell|pwsh]
                                   Install completion for the specified shell.

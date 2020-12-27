@@ -7,26 +7,50 @@ from typing import List
 
 import aiofiles
 import typer
-from ruia import Item, Spider, TextField
+from ruia import AttrField, Item, Spider, TextField
 
 from scraper.utils import mkdirs_if_not_exist, safe_filename
 
 IMAGE_HOST = 'http://imgoss.cnu.cc/'
-BASE_DIR = 'www.cnu.cc'
-THUMBNAIL_PARAMS = '?x-oss-process=style/content'
+AUTHOR_RCMDS_PREFIX = 'http://www.cnu.cc/users/recommended/'
+AUTHOR_WORKS_PREFIX = 'http://www.cnu.cc/users/'
+WORK_PREFIX = 'http://www.cnu.cc/works/'
+THUMBNAIL_SUFFIX = '?x-oss-process=style/content'
+PAGE_SUFFIX = '?page={page}'
 
 APP_NAME = 'CNU Scraper'
-START_URLS = ['http://www.cnu.cc/works/{work_id}']
+BASE_DIR = 'www.cnu.cc'
+START_URLS = [
+    'http://www.cnu.cc/works/{id}',  # 作品集 URL
+    'http://www.cnu.cc/users/{id}',  # 用户作品页 URL
+    'http://www.cnu.cc/users/recommended/{id}',  # 用户推荐页 URL
+]
 DESTINATION = Path('.')
-CONCURRENCY = 10
 OVERWRITE = False
-RETRIES = 3
-TIMEOUT = 20.0
 THUMBNAIL = False
+WORKER_NUMBERS = 2
+CONCURRENCY = 25
+RETRIES = 3
+DELAY = 0
+RETRY_DELAY = 0
+TIMEOUT = 20
 
 
-class CNUItem(Item):
+class PageItem(Item):
+    target_item = TextField(css_select='div.pager_box')
+    max_page = TextField(css_select='ul>li:nth-last-child(2)', default=1)
+
+
+class WorkItem(Item):
+    target_item = TextField(css_select='div.work-thumbnail')
+    author = TextField(css_select='div.author')
+    title = TextField(css_select='div.title')  # WorkPage 中是日期
+    work = AttrField(css_select='.thumbnail', attr='href')
+
+
+class ImagesItem(Item):
     target_item = TextField(css_select='body')
+    author = TextField(css_select='.author-info strong')
     title = TextField(css_select='.work-title')
     imgs_json = TextField(css_select='#imgs_json')
 
@@ -53,20 +77,54 @@ class CNUSpider(Spider):
             setattr(self, k, v)
 
     async def parse(self, response):
-        async for item in CNUItem.get_items(html=response.html):
-            urls = [IMAGE_HOST + img.get('img') for img in json.loads(item.imgs_json)]
+        if response.url.startswith(AUTHOR_WORKS_PREFIX):
+            async for page_item in PageItem.get_items(html=await response.text()):
+                for page in range(1, int(page_item.max_page) + 1):
+                    page_url = f'{response.url.split("?")[0]}{PAGE_SUFFIX.format(page=page)}'
+                    yield self.request(
+                        url=page_url,
+                        metadata={
+                            'current_page': page,
+                            'max_page': page_item.max_page,
+                        },
+                        callback=self.parse_page)
+        elif response.url.startswith(WORK_PREFIX):
+            yield self.parse_work(response)
+        else:
+            self.logger.warning(f'Parser not support URL: {response.url}')
+
+    async def parse_page(self, response):
+        async for work_item in WorkItem.get_items(html=await response.text()):
+            yield self.request(
+                url=work_item.work,
+                metadata={
+                    'current_page': response.metadata['current_page'],
+                    'max_page': response.metadata['max_page'],
+                    'author': work_item.author,
+                    'title': work_item.title,
+                    'work': work_item.work
+                },
+                callback=self.parse_work
+            )
+
+    async def parse_work(self, response):
+        async for images_item in ImagesItem.get_items(html=await response.text()):
+            urls = [IMAGE_HOST + img.get('img') for img in json.loads(images_item.imgs_json)]
             for index, url in enumerate(urls):
                 basename = url.split('/')[-1]
-                save_dir = self._destination / BASE_DIR / safe_filename(item.title)
+                save_dir = (self._destination /
+                            BASE_DIR /
+                            safe_filename(images_item.author) /
+                            safe_filename(images_item.title))
                 fpath = save_dir / f'[{index + 1:02d}]{basename}'
                 if self._overwrite or not fpath.is_file():
                     if self._thumbnail:
-                        url += THUMBNAIL_PARAMS
+                        url += THUMBNAIL_SUFFIX
                     self.logger.info(f'Downloading {url} ...')
                     yield self.request(
                         url=url,
                         metadata={
-                            'title': item.title,
+                            'title': images_item.title,
                             'index': index,
                             'url': url,
                             'basename': basename,
@@ -77,9 +135,6 @@ class CNUSpider(Spider):
                     )
                 else:
                     self.logger.info(f'Skipped already exists: {fpath}')
-
-    async def process_item(self, item):
-        pass
 
     async def save_image(self, response):
         # 创建图片保存目录
@@ -99,66 +154,62 @@ class CNUSpider(Spider):
 
 
 def cnu_command(
-        start_urls: List[str] = typer.Argument(..., help='URLs of the works'),
-        destination: Path = typer.Option(DESTINATION, help='Destination directory to save the images'),
-        overwrite: bool = typer.Option(OVERWRITE, help='Whether to overwrite existing images'),
-        retries: int = typer.Option(RETRIES, help='Times of retries when the download fails'),
-        concurrency: int = typer.Option(CONCURRENCY, help='Maximum number of parallel workers'),
-        timeout: float = typer.Option(TIMEOUT, help='HTTP request timeout, in seconds'),
-        thumbnail: bool = typer.Option(THUMBNAIL, help='Whether to download the thumbnail image')
+        start_urls: List[str] = typer.Argument(
+            ...,
+            help='URLs of the works'
+        ),
+        destination: Path = typer.Option(
+            DESTINATION, '-d', '--destination',
+            help='Destination directory to save the images'
+        ),
+        overwrite: bool = typer.Option(
+            OVERWRITE, '-o / -no', '--overwrite / --no-overwrite',
+            help='Whether to overwrite existing images'
+        ),
+        thumbnail: bool = typer.Option(
+            THUMBNAIL, '-t', '--thumbnail',
+            help='Whether to download the thumbnail images'
+        ),
+        retries: int = typer.Option(
+            RETRIES, '-r', '--retries',
+            help='Number of retries when the download fails'
+        ),
+        worker_numbers: int = typer.Option(
+            WORKER_NUMBERS, '-w', '--workers',
+            help='Number of parallel workers'
+        ),
+        concurrency: int = typer.Option(
+            CONCURRENCY, '-c', '--concurrency',
+            help='Number of concurrency'
+        ),
+        delay: int = typer.Option(
+            DELAY, '--delay',
+            help='Seconds to wait for the next request'
+        ),
+        retry_delay: int = typer.Option(
+            RETRY_DELAY, '--retry-delay',
+            help='Seconds to wait for the retry request'
+        ),
+        timeout: int = typer.Option(
+            TIMEOUT, '--timeout',
+            help='Seconds of HTTP request timeout'
+        ),
 ):
     """ A scraper to download images from http://www.cnu.cc/"""
-
-    # 多任务
-    # import asyncio
-    #
-    # async def start():
-    #     await asyncio.gather(
-    #         CNUSpider.async_start(
-    #             cancel_tasks=False,
-    #             spider_config=dict(
-    #                 start_urls=list(start_urls),
-    #                 request_config={
-    #                     'RETRIES': retries,
-    #                     'DELAY': 0,
-    #                     'TIMEOUT': timeout
-    #                 },
-    #                 _destination=destination,
-    #                 _overwrite=overwrite,
-    #                 _thumbnail=thumbnail,
-    #                 concurrency=concurrency
-    #             )),
-    #         CNUSpider.async_start(
-    #             cancel_tasks=False,
-    #             spider_config=dict(
-    #                 start_urls=list(start_urls),
-    #                 request_config={
-    #                     'RETRIES': retries,
-    #                     'DELAY': 0,
-    #                     'TIMEOUT': timeout
-    #                 },
-    #                 _destination=destination,
-    #                 _overwrite=overwrite,
-    #                 _thumbnail=thumbnail,
-    #                 concurrency=concurrency
-    #             )),
-    #     )
-    #     await CNUSpider.cancel_all_tasks()
-    #
-    # asyncio.get_event_loop().run_until_complete(start())
-
     # 开始爬虫任务
     CNUSpider.start(
         spider_config=dict(
             start_urls=list(start_urls),
             request_config={
                 'RETRIES': retries,
-                'DELAY': 0,
+                'DELAY': delay,
+                'RETRY_DELAY': retry_delay,
                 'TIMEOUT': timeout
             },
             _destination=destination,
             _overwrite=overwrite,
             _thumbnail=thumbnail,
+            worker_numbers=worker_numbers,
             concurrency=concurrency
         )
     )

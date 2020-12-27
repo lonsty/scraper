@@ -10,7 +10,7 @@ aiofiles = ">=0.6.0"
 beautifulsoup4 = ">=4.9.1"
 click = ">=7.0"
 requests = ">=2.24.0"
-ruia = {version = ">=0.7.1", extras = ["uvloop"]}
+ruia = {version = ">=0.8.0", extras = ["uvloop"]}
 termcolor = ">=1.1.0"
 typer = ">=0.3.2"
 
