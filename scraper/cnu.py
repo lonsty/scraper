@@ -88,22 +88,14 @@ class CNUSpider(Spider):
             self.logger.info(f'Created directory: {save_dir}')
         # 保存图片
         fpath = response.metadata['fpath']
-        async with aiofiles.open(fpath, 'wb') as f:
-            await f.write(response.html)
-            self.logger.info(f'Saved to {fpath}')
-
-
-def multi_spider_start():
-    import asyncio
-
-    async def start():
-        await asyncio.gather(
-            CNUSpider.async_start(cancel_tasks=False),
-            CNUSpider.async_start(cancel_tasks=False),
-        )
-        await CNUSpider.cancel_all_tasks()
-
-    asyncio.get_event_loop().run_until_complete(start())
+        try:
+            content = await response.read()
+        except TypeError as e:
+            self.logger.error(e)
+        else:
+            async with aiofiles.open(fpath, 'wb') as f:
+                await f.write(content)
+                self.logger.info(f'Saved to {fpath}')
 
 
 def cnu_command(
@@ -116,16 +108,57 @@ def cnu_command(
         thumbnail: bool = typer.Option(THUMBNAIL, help='Whether to download the thumbnail image')
 ):
     """ A scraper to download images from http://www.cnu.cc/"""
+
+    # 多任务
+    # import asyncio
+    #
+    # async def start():
+    #     await asyncio.gather(
+    #         CNUSpider.async_start(
+    #             cancel_tasks=False,
+    #             spider_config=dict(
+    #                 start_urls=list(start_urls),
+    #                 request_config={
+    #                     'RETRIES': retries,
+    #                     'DELAY': 0,
+    #                     'TIMEOUT': timeout
+    #                 },
+    #                 _destination=destination,
+    #                 _overwrite=overwrite,
+    #                 _thumbnail=thumbnail,
+    #                 concurrency=concurrency
+    #             )),
+    #         CNUSpider.async_start(
+    #             cancel_tasks=False,
+    #             spider_config=dict(
+    #                 start_urls=list(start_urls),
+    #                 request_config={
+    #                     'RETRIES': retries,
+    #                     'DELAY': 0,
+    #                     'TIMEOUT': timeout
+    #                 },
+    #                 _destination=destination,
+    #                 _overwrite=overwrite,
+    #                 _thumbnail=thumbnail,
+    #                 concurrency=concurrency
+    #             )),
+    #     )
+    #     await CNUSpider.cancel_all_tasks()
+    #
+    # asyncio.get_event_loop().run_until_complete(start())
+
     # 开始爬虫任务
-    CNUSpider.start(spider_config=dict(
-        start_urls=list(start_urls),
-        request_config={
-            'RETRIES': retries,
-            'DELAY': 0,
-            'TIMEOUT': timeout
-        },
-        _destination=destination,
-        _overwrite=overwrite,
-        _thumbnail=thumbnail,
-        concurrency=concurrency,
-    ))
+    CNUSpider.start(
+        spider_config=dict(
+            start_urls=list(start_urls),
+            request_config={
+                'RETRIES': retries,
+                'DELAY': 0,
+                'TIMEOUT': timeout
+            },
+            _destination=destination,
+            _overwrite=overwrite,
+            _thumbnail=thumbnail,
+            concurrency=concurrency
+        )
+    )

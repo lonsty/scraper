@@ -2,7 +2,7 @@
 
 图片爬取下载工具，极速爬取下载 站酷（[https://www.zcool.com.cn/](https://www.zcool.com.cn/)）、CNU 视觉（[http://www.cnu.cc/](http://www.cnu.cc/)）`设计师/用户` 上传的 `图片/照片/插画`。
 
-**:tada: :tada: :tada: 此下载工具已发布到 PyPI**
+**:tada: :tada: :tada: 站酷下载工具已发布到 PyPI**
 
 - 项目地址：[https://github.com/lonsty/zcooldl](https://github.com/lonsty/zcooldl)
 - 在线文档：[https://zcooldl.readthedocs.io/](https://zcooldl.readthedocs.io/)
@@ -46,7 +46,7 @@ $ cd scraper
 $ pip install -r requirements.txt
 ```
 
-1. 下载 [站酷（Zcool）](https://www.zcool.com.cn/) 作品
+1. 下载 [站酷（Zcool）](https://www.zcool.com.cn/)作品
 
 下载用户名为 `username` 的所有图片到路径 `path` 下：
 
@@ -66,10 +66,10 @@ $ python zcool.py -u <username> -d <path>
 
 ![screenshot_02.png](screenshots/02.png)
 
-2. 下载 [视觉（CNU）](http://www.cnu.cc/) 作品
+2. 下载 [视觉（CNU）](http://www.cnu.cc/)作品
 
 ```sh
-python cnu.py <WORK_URL1> <WORKURL2> ...
+python cnu.py <WORK_URLS> ...
 ```
 
 # 使用帮助
@@ -160,11 +160,15 @@ Options:
 
 # 更新历史
 
-- ## Version 0.1.4 (2020.11.30)
+- ## 0.1.5 (2020-12-27)
+
+    - 新增爬虫：使用 ruia 异步爬虫框架下载 [视觉（CNU）](http://www.cnu.cc/)作品
+
+- ## 0.1.4 (2020-11-30)
 
     - 新增功能：新参数 `-c <收藏夹 URL, ...>`，支持下载收藏夹中的作品。
 
-- ## Version 0.1.3 (2020.07.22)
+- ## 0.1.3 (2020-07-22)
 
     - 修复了在动态加载页面中无法获取并下载所有图片的问题
     - 保存的图片文件名中加入了序号，以保持原始顺序
@@ -175,14 +179,14 @@ Options:
     - 优化了终端输出信息，用不同颜色文字进行了标识
     - 修复了在低网速下无法下载图片的问题，并加快了整体下载速度
 
-- ## Version 0.1.2 (2020.03.24)
+- ## 0.1.2 (2020-03-24)
 
     新功能：
     
     - 新增下载超清原图（默认选项，约几 MB），使用参数 `--thumbnail` 下载缩略图（宽最大 1280px，约 500KB）
     - 新增支持下载 JPG、PNG、GIF、BMP 格式的图片
 
-- ## Version 0.1.1 (2019.12.09)
+- ## 0.1.1 (2019-12-09)
 
     新功能：
     
@@ -193,7 +197,7 @@ Options:
     
     - 修复用户如果没有上传任何图片时的下载错误
 
-- ## Version 0.1.0 (2019.09.09)
+- ## 0.1.0 (2019-09-09)
 
     主要功能：
     
